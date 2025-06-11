@@ -3,6 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
+  "homepage": "https://robermau.github.io/teleasistencia/",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -15,8 +16,7 @@
     "react-dom": "^18.2.0",
     "recharts": "^2.7.2",
     "xlsx": "^0.18.5"
-  },
-  "devDependencies": {
+  },  "devDependencies": {
     "@vitejs/plugin-react": "^4.0.0",
     "autoprefixer": "^10.4.14",
     "postcss": "^8.4.24",
