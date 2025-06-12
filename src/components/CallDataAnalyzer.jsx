@@ -94,6 +94,29 @@ const CallDataAnalyzer = () => {
                         fecha = new Date(rawDate);
                     }
 
+                    // Parse time values
+                    const parseExcelTime = (timeValue) => {
+                        if (!timeValue) return null;
+                        
+                        // If it's a string in format HH:mm, return as is
+                        if (typeof timeValue === 'string' && timeValue.includes(':')) {
+                            return timeValue;
+                        }
+                        
+                        // If it's a number (Excel stores times as fraction of 24 hours)
+                        if (typeof timeValue === 'number') {
+                            const totalSeconds = Math.round(timeValue * 24 * 60 * 60);
+                            const hours = Math.floor(totalSeconds / 3600);
+                            const minutes = Math.floor((totalSeconds % 3600) / 60);
+                            return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+                        }
+                        
+                        return null;
+                    };
+
+                    const horaInicio = parseExcelTime(row['G']);
+                    const horaFin = parseExcelTime(row['H']);
+
                     const callRecord = {
                         idLlamado: row['A'] || '',
                         fecha: fecha,
@@ -101,8 +124,8 @@ const CallDataAnalyzer = () => {
                         comuna: row['D'],
                         tipo: (row['E'] || '').toLowerCase(), // entrante/saliente
                         telefono: row['F'],
-                        horaInicio: row['G'],
-                        horaFin: row['H'],
+                        horaInicio: horaInicio,
+                        horaFin: horaFin,
                         segundos: parseInt(row['I']) || 0
                     };
 
@@ -129,26 +152,20 @@ const CallDataAnalyzer = () => {
         };
 
         reader.readAsArrayBuffer(file);
-    };
-
-    // Calculate statistics
+    };    // Calculate statistics
     const getCallStats = () => {
         let filteredCalls = llamados;
 
-        if (selectedOperadora) {
-            filteredCalls = filteredCalls.filter(call => call.teleoperadoraId === selectedOperadora);
-        }
-
         if (selectedDateRange.start) {
             const startDate = new Date(selectedDateRange.start);
-            filteredCalls = filteredCalls.filter(call => call.fecha.toDate() >= startDate);
+            filteredCalls = filteredCalls.filter(call => call.fecha >= startDate);
         }
 
         if (selectedDateRange.end) {
             const endDate = new Date(selectedDateRange.end);
             endDate.setHours(23, 59, 59);
-            filteredCalls = filteredCalls.filter(call => call.fecha.toDate() <= endDate);
-        }                const stats = {
+            filteredCalls = filteredCalls.filter(call => call.fecha <= endDate);
+        }const stats = {
                     totalCalls: filteredCalls.length,
                     incomingCalls: filteredCalls.filter(call => call.tipo === 'entrante').length,
                     outgoingCalls: filteredCalls.filter(call => call.tipo === 'saliente').length,
@@ -402,7 +419,7 @@ const CallDataAnalyzer = () => {
                                             {call.idLlamado}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
-                                            {call.fecha.toLocaleDateString()} {call.horaInicio}
+                                            {new Date(call.fecha).toLocaleDateString()} {call.horaInicio}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             {call.beneficiarioNombre}
@@ -426,7 +443,7 @@ const CallDataAnalyzer = () => {
                                             {call.segundos} seg
                                         </td>
                                     </tr>
-                            ))}
+                                ))}
                         </tbody>
                     </table>
                 </div>
