@@ -47,6 +47,9 @@ const analytics = getAnalytics(app);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
+// Export db instance for components to use
+export { db };
+
 // --- Authentication Context ---
 const AuthContext = createContext();
 

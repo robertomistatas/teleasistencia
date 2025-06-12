@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { getFirestore, collection, getDocs, doc, setDoc, deleteDoc, query, where } from 'firebase/firestore';
+import { collection, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { read, utils } from 'xlsx';
 import { ArrowUpOnSquareIcon, ArrowPathIcon, TrashIcon } from '@heroicons/react/24/outline';
-
-const db = getFirestore();
+import { db } from '../App';
 
 const Toast = ({ message, type, onDismiss }) => {
     const bgColor = type === 'success' ? 'bg-green-500' : 'bg-red-500';
