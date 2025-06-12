@@ -10,6 +10,7 @@ import {
     signInAnonymously,
     deleteUser
 } from 'firebase/auth';
+import CallDataAnalyzer from './components/CallDataAnalyzer';
 import { 
     getFirestore, 
     collection, 
@@ -194,7 +195,7 @@ const Sidebar = ({ setView }) => {
         { name: 'Teleoperadoras', icon: UsersIcon, view: 'operadoras' },
         { name: 'Beneficiarios', icon: PhoneIcon, view: 'beneficiarios' },
         { name: 'Asignaciones', icon: LinkIcon, view: 'assignments' },
-        { name: 'Cargar Datos', icon: DocumentArrowUpIcon, view: 'cargar' },
+        { name: 'Registro de Llamadas', icon: DocumentArrowUpIcon, view: 'cargar' },
     ];
     return (
         <div className="w-64 bg-gray-800 text-white flex flex-col min-h-screen">
@@ -409,6 +410,7 @@ const Operadoras = () => {
             const userSnapshot = await getDocs(usersCollection);
             if (userSnapshot.empty) {
                 const initialOperators = [
+                    { nombre: 'Roberto Mistatas', email: 'roberto@mistatas.com' },
                     { nombre: 'Ana Maria Asencio', email: 'ana.asencio@example.com' },
                     { nombre: 'Catalina Aguilera', email: 'catalina.aguilera@example.com' },
                     { nombre: 'Daniela Carmona', email: 'daniela.carmona@example.com' },
@@ -878,7 +880,7 @@ const MainLayout = () => {
             case 'assignments':
                 return <AssignmentManager />;
             case 'cargar':
-                return <CargarDatos />;
+                return <CallDataAnalyzer />;
             default:
                 return <Dashboard />;
         }
