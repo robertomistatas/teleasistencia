@@ -579,175 +579,286 @@ const CargarDatos = () => {
     const [loading, setLoading] = useState(false);
     const [toast, setToast] = useState({ message: '', type: '' });
     const [operadoras, setOperadoras] = useState([]);
+    const [selectedOperadora, setSelectedOperadora] = useState('');
+    const [existingAssignments, setExistingAssignments] = useState([]);
+    const [isReassignModalOpen, setIsReassignModalOpen] = useState(false);
+    const [selectedBeneficiary, setSelectedBeneficiary] = useState(null);
+    const [newOperadora, setNewOperadora] = useState('');
 
     useEffect(() => {
-        const fetchOperadoras = async () => {
-            const usersCollection = collection(db, 'users');
-            const userSnapshot = await getDocs(usersCollection);
-            setOperadoras(userSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        const fetchInitialData = async () => {
+            try {
+                // Fetch teleoperators
+                const operadorasSnap = await getDocs(collection(db, 'users'));
+                setOperadoras(operadorasSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+
+                // Fetch existing assignments
+                const assignmentsSnap = await getDocs(collection(db, 'assignments'));
+                setExistingAssignments(assignmentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            } catch (error) {
+                console.error("Error fetching data:", error);
+                setToast({ message: `Error al cargar datos: ${error.message}`, type: 'error' });
+            }
         };
-        fetchOperadoras();
+        fetchInitialData();
     }, []);
 
     const handleFileChange = (e) => {
         setFile(e.target.files[0]);
     };
-    
-    // Helper to convert Excel serial date to JS Date
-    const excelDateToJSDate = (serial) => {
-        if (typeof serial !== 'number' || isNaN(serial)) return new Date();
-        const utc_days = Math.floor(serial - 25569);
-        const utc_value = utc_days * 86400;                                        
-        const date_info = new Date(utc_value * 1000);
 
-        const fractional_day = serial - Math.floor(serial) + 0.0000001;
-
-        let total_seconds = Math.floor(86400 * fractional_day);
-
-        const seconds = total_seconds % 60;
-        total_seconds -= seconds;
-
-        const hours = Math.floor(total_seconds / (60 * 60));
-        const minutes = Math.floor(total_seconds / 60) % 60;
-
-        return new Date(date_info.getFullYear(), date_info.getMonth(), date_info.getDate(), hours, minutes, seconds);
-    }
-
-    const clearPreviousData = async () => {
-        // Get all existing llamados and beneficiarios
-        const llamadosSnap = await getDocs(collection(db, 'llamados'));
-        const beneficiariosSnap = await getDocs(collection(db, 'beneficiarios'));
-
-        const batch = writeBatch(db);
-
-        // Delete all llamados
-        llamadosSnap.docs.forEach(doc => {
-            batch.delete(doc.ref);
-        });
-
-        // Delete all beneficiarios
-        beneficiariosSnap.docs.forEach(doc => {
-            batch.delete(doc.ref);
-        });
-
-        await batch.commit();
+    const handleOperadoraChange = (e) => {
+        setSelectedOperadora(e.target.value);
     };
 
     const handleFileUpload = async () => {
-        if (!file) {
-            setToast({ message: 'Por favor, selecciona un archivo', type: 'error' });
-            return;
-        }
-        if (operadoras.length === 0) {
-            setToast({ message: 'No hay operadoras en el sistema para asignar llamadas', type: 'error'});
+        if (!file || !selectedOperadora) {
+            setToast({ message: 'Por favor, selecciona una operadora y un archivo', type: 'error' });
             return;
         }
 
         setLoading(true);
+        const reader = new FileReader();
+        
+        reader.onload = async (e) => {
+            try {
+                const data = new Uint8Array(e.target.result);
+                const workbook = read(data, { type: 'array' });
+                const sheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[sheetName];
+                const json = utils.sheet_to_json(worksheet);
 
-        try {
-            // Clear previous data before loading new file
-            await clearPreviousData();
+                const operadora = operadoras.find(op => op.id === selectedOperadora);
+                const batch = writeBatch(db);
+                
+                // Track new beneficiarios to avoid duplicates
+                const processedBeneficiarios = new Map();
 
-            const reader = new FileReader();
-            reader.onload = async (e) => {
-                try {
-                    const data = new Uint8Array(e.target.result);
-                    const workbook = read(data, { type: 'array' });
-                    const sheetName = workbook.SheetNames[0];
-                    const worksheet = workbook.Sheets[sheetName];
-                    const json = utils.sheet_to_json(worksheet, { header: 'A' });
+                for (const row of json) {
+                    const beneficiarioName = row['Nombre']; // Assuming 'Nombre' is the column header
+                    const telefonos = String(row['Telefonos']).split(',').map(tel => tel.trim());
+                    const comuna = row['Comuna'];
 
-                    const batch = writeBatch(db);
-                    
-                    // Track new beneficiarios to avoid duplicates within the same file
-                    const newBeneficiarios = new Map();
+                    if (!beneficiarioName) continue;
 
-                    for (const row of json.slice(1)) {
-                        const randomOperadora = operadoras[Math.floor(Math.random() * operadoras.length)];
+                    // Check if beneficiary already exists in assignments
+                    const existingAssignment = existingAssignments.find(a => 
+                        a.beneficiarioNombre.toLowerCase() === beneficiarioName.toLowerCase()
+                    );
 
-                        const callData = {
-                            fecha: Timestamp.fromDate(excelDateToJSDate(row['B'])),
-                            beneficiarioNombre: row['C'],
-                            comuna: row['D'],
-                            tipo: row['E'],
-                            telefono: String(row['F']),
-                            horaInicio: excelDateToJSDate(row['G']).toLocaleTimeString('es-CL'),
-                            horaFin: excelDateToJSDate(row['H']).toLocaleTimeString('es-CL'),
-                            segundos: Number(row['I']) || 0,
-                            teleoperadoraId: randomOperadora.id,
-                            teleoperadoraNombre: randomOperadora.nombre,
-                        };
-                        
-                        if (!callData.fecha || !callData.beneficiarioNombre) {
-                            console.warn("Skipping invalid row:", row);
+                    if (existingAssignment) {
+                        // Skip if already assigned to this operadora
+                        if (existingAssignment.operadoraId === selectedOperadora) {
                             continue;
                         }
-
-                        let beneficiarioId;
+                        // Update existing assignment
+                        batch.update(doc(db, 'assignments', existingAssignment.id), {
+                            operadoraId: operadora.id,
+                            operadoraNombre: operadora.nombre
+                        });
+                    } else {
+                        // Create new beneficiary if not processed in this batch
+                        let beneficiarioId = processedBeneficiarios.get(beneficiarioName);
                         
-                        // Check if we've already created this beneficiario in this batch
-                        if (newBeneficiarios.has(callData.beneficiarioNombre)) {
-                            beneficiarioId = newBeneficiarios.get(callData.beneficiarioNombre);
-                        } else {
-                            // Create new beneficiario
+                        if (!beneficiarioId) {
                             const beneficiarioRef = doc(collection(db, 'beneficiarios'));
-                            batch.set(beneficiarioRef, {
-                                nombre: callData.beneficiarioNombre,
-                                comuna: callData.comuna,
-                                telefonos: [callData.telefono]
-                            });
                             beneficiarioId = beneficiarioRef.id;
-                            newBeneficiarios.set(callData.beneficiarioNombre, beneficiarioId);
+                            batch.set(beneficiarioRef, {
+                                nombre: beneficiarioName,
+                                comuna: comuna,
+                                telefonos: telefonos
+                            });
+                            processedBeneficiarios.set(beneficiarioName, beneficiarioId);
                         }
 
-                        const llamadoRef = doc(collection(db, 'llamados'));
-                        batch.set(llamadoRef, { ...callData, beneficiarioId: beneficiarioId });
-                    }
-
-                    await batch.commit();
-                    setToast({ message: `Se cargaron ${json.length - 1} registros nuevos`, type: 'success' });
-                } catch (error) {
-                    console.error("Error processing file:", error);
-                    setToast({ message: `Error al procesar el archivo: ${error.message}`, type: 'error' });
-                } finally {
-                    setLoading(false);
-                    setFile(null);
-                    if(document.getElementById('file-upload')) {
-                        document.getElementById('file-upload').value = null;
+                        // Create new assignment
+                        const assignmentRef = doc(collection(db, 'assignments'));
+                        batch.set(assignmentRef, {
+                            beneficiarioId: beneficiarioId,
+                            beneficiarioNombre: beneficiarioName,
+                            operadoraId: operadora.id,
+                            operadoraNombre: operadora.nombre,
+                            createdAt: new Date()
+                        });
                     }
                 }
-            };
-            reader.readAsArrayBuffer(file);
+
+                await batch.commit();
+                
+                // Refresh assignments list
+                const newAssignmentsSnap = await getDocs(collection(db, 'assignments'));
+                setExistingAssignments(newAssignmentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                
+                setToast({ message: `Se procesaron ${json.length} registros exitosamente`, type: 'success' });
+            } catch (error) {
+                console.error("Error processing file:", error);
+                setToast({ message: `Error al procesar archivo: ${error.message}`, type: 'error' });
+            } finally {
+                setLoading(false);
+                setFile(null);
+                if (document.getElementById('file-upload')) {
+                    document.getElementById('file-upload').value = null;
+                }
+            }
+        };
+
+        reader.readAsArrayBuffer(file);
+    };
+
+    const handleReassignBeneficiary = async () => {
+        if (!selectedBeneficiary || !newOperadora) {
+            setToast({ message: 'Selecciona un beneficiario y una operadora', type: 'error' });
+            return;
+        }
+
+        try {
+            const operadora = operadoras.find(op => op.id === newOperadora);
+            await updateDoc(doc(db, 'assignments', selectedBeneficiary.id), {
+                operadoraId: operadora.id,
+                operadoraNombre: operadora.nombre
+            });
+
+            // Refresh assignments list
+            const newAssignmentsSnap = await getDocs(collection(db, 'assignments'));
+            setExistingAssignments(newAssignmentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+
+            setToast({ message: 'Beneficiario reasignado exitosamente', type: 'success' });
+            setIsReassignModalOpen(false);
+            setSelectedBeneficiary(null);
+            setNewOperadora('');
         } catch (error) {
-            console.error("Error clearing previous data:", error);
-            setToast({ message: `Error al limpiar datos anteriores: ${error.message}`, type: 'error' });
-            setLoading(false);
+            console.error("Error reassigning beneficiary:", error);
+            setToast({ message: `Error al reasignar: ${error.message}`, type: 'error' });
         }
     };
 
     return (
         <div className="p-6 bg-gray-50 min-h-full">
             <Toast message={toast.message} type={toast.type} onDismiss={() => setToast({message: '', type: ''})} />
-            <h1 className="text-3xl font-bold text-gray-800 mb-6">Carga de Datos del Período</h1>
-            <div className="bg-white p-8 rounded-lg shadow max-w-xl mx-auto">
-                <div className="mb-6">
-                    <p className="text-gray-600 mb-2">
-                        Sube un archivo .xlsx o .csv con los registros de llamadas del período a analizar.
-                    </p>
-                    <p className="text-amber-600 font-medium mb-4">
-                        Importante: Al subir un nuevo archivo, se eliminarán todos los registros anteriores.
-                    </p>
+            
+            <div className="mb-8">
+                <h1 className="text-3xl font-bold text-gray-800 mb-6">Carga de Beneficiarios por Teleoperadora</h1>
+                <div className="bg-white p-8 rounded-lg shadow max-w-xl mx-auto">
+                    <div className="mb-6">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Seleccionar Teleoperadora
+                        </label>
+                        <select
+                            value={selectedOperadora}
+                            onChange={handleOperadoraChange}
+                            className="w-full p-2 border rounded-md mb-4"
+                        >
+                            <option value="">Seleccionar operadora</option>
+                            {operadoras.map(op => (
+                                <option key={op.id} value={op.id}>{op.nombre}</option>
+                            ))}
+                        </select>
+
+                        <p className="text-gray-600 mb-4">
+                            Sube un archivo Excel con los beneficiarios:
+                            <br />
+                            Columna A: Nombre del beneficiario
+                            <br />
+                            Columna B: Teléfonos (separados por comas)
+                            <br />
+                            Columna C: Comuna
+                        </p>
+                    </div>
+
+                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                        <input
+                            type="file"
+                            id="file-upload"
+                            accept=".xlsx,.xls"
+                            onChange={handleFileChange}
+                            className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                        />
+                    </div>
+
+                    <button
+                        onClick={handleFileUpload}
+                        disabled={loading || !file || !selectedOperadora}
+                        className="mt-6 w-full bg-blue-500 text-white px-4 py-3 rounded-lg flex items-center justify-center gap-2 hover:bg-blue-600 disabled:bg-gray-400"
+                    >
+                        {loading ? <ArrowPathIcon className="h-5 w-5 animate-spin"/> : <ArrowUpOnSquareIcon className="h-5 w-5"/>}
+                        {loading ? 'Procesando...' : 'Subir y Procesar'}
+                    </button>
                 </div>
-                <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                    <input type="file" id="file-upload" accept=".xlsx, .csv" onChange={handleFileChange} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
-                    {file && <p className="mt-2 text-sm text-gray-500">Archivo seleccionado: {file.name}</p>}
-                </div>
-                <button onClick={handleFileUpload} disabled={loading || !file} className="mt-6 w-full bg-blue-500 text-white px-4 py-3 rounded-lg flex items-center justify-center gap-2 hover:bg-blue-600 disabled:bg-gray-400">
-                    {loading ? <ArrowPathIcon className="h-5 w-5 animate-spin"/> : <ArrowUpOnSquareIcon className="h-5 w-5"/>}
-                    {loading ? 'Procesando...' : 'Subir y Procesar Archivo'}
-                </button>
             </div>
+
+            <div className="mt-8">
+                <h2 className="text-2xl font-bold text-gray-800 mb-4">Asignaciones Actuales</h2>
+                <div className="bg-white rounded-lg shadow overflow-hidden">
+                    <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-50">
+                            <tr>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Beneficiario</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Teleoperadora</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                            {existingAssignments.map(assignment => (
+                                <tr key={assignment.id}>
+                                    <td className="px-6 py-4">{assignment.beneficiarioNombre}</td>
+                                    <td className="px-6 py-4">{assignment.operadoraNombre}</td>
+                                    <td className="px-6 py-4">
+                                        <button
+                                            onClick={() => {
+                                                setSelectedBeneficiary(assignment);
+                                                setIsReassignModalOpen(true);
+                                            }}
+                                            className="text-blue-600 hover:text-blue-900"
+                                        >
+                                            Reasignar
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <Modal
+                isOpen={isReassignModalOpen}
+                onClose={() => {
+                    setIsReassignModalOpen(false);
+                    setSelectedBeneficiary(null);
+                    setNewOperadora('');
+                }}
+                title="Reasignar Beneficiario"
+            >
+                <div className="p-4">
+                    <p className="mb-4">
+                        Reasignar a <strong>{selectedBeneficiary?.beneficiarioNombre}</strong>
+                    </p>
+                    <select
+                        value={newOperadora}
+                        onChange={(e) => setNewOperadora(e.target.value)}
+                        className="w-full p-2 border rounded-md mb-4"
+                    >
+                        <option value="">Seleccionar nueva operadora</option>
+                        {operadoras.map(op => (
+                            <option key={op.id} value={op.id}>{op.nombre}</option>
+                        ))}
+                    </select>
+                    <div className="flex justify-end gap-2">
+                        <button
+                            onClick={() => setIsReassignModalOpen(false)}
+                            className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300"
+                        >
+                            Cancelar
+                        </button>
+                        <button
+                            onClick={handleReassignBeneficiary}
+                            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                        >
+                            Confirmar
+                        </button>
+                    </div>
+                </div>
+            </Modal>
         </div>
     );
 };
