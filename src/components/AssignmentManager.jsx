@@ -61,7 +61,34 @@ const AssignmentManager = () => {
 
     const handleFileChange = (e) => {
         setFile(e.target.files[0]);
-    };    const handleFileUpload = async () => {
+    };    const refreshData = async () => {
+        try {
+            // Refresh assignments
+            const assignmentsSnap = await getDocs(collection(db, 'assignments'));
+            const newAssignments = assignmentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setAssignments(newAssignments);
+            
+            // Force stats recalculation
+            const stats = operadoras.map(op => {
+                const operadoraAssignments = newAssignments.filter(a => a.operadoraId === op.id);
+                return {
+                    ...op,
+                    beneficiariosCount: operadoraAssignments.length,
+                    beneficiarios: operadoraAssignments.map(a => ({
+                        id: a.beneficiarioId,
+                        nombre: a.beneficiarioNombre,
+                        assignmentId: a.id
+                    }))
+                };
+            });
+            setAssignmentStats(stats);
+        } catch (error) {
+            console.error("Error refreshing data:", error);
+            setToast({ message: `Error al actualizar datos: ${error.message}`, type: 'error' });
+        }
+    };
+
+    const handleFileUpload = async () => {
         if (!file || !selectedOperadora) {
             setToast({ message: 'Por favor, selecciona una operadora y un archivo', type: 'error' });
             return;
@@ -75,15 +102,15 @@ const AssignmentManager = () => {
                 const data = new Uint8Array(e.target.result);
                 const workbook = read(data, { type: 'array' });
                 const sheetName = workbook.SheetNames[0];
-                const worksheet = workbook.Sheets[sheetName];
-                const json = utils.sheet_to_json(worksheet);
+                const worksheet = workbook.Sheets[sheetName];                const json = utils.sheet_to_json(worksheet, { header: 'A' });
 
                 const operadora = operadoras.find(op => op.id === selectedOperadora);
+                console.log('Processing Excel for operadora:', operadora.nombre);
                 
                 // Process each row
-                for (const row of json) {
+                for (const row of json.slice(1)) { // Skip header row
                     const beneficiarioName = row['A']; // Column A = beneficiary name
-                    const telefonos = String(row['B'] || '').split(',').map(tel => tel.trim()); // Column B = phone numbers
+                    const telefonos = row['B'] ? String(row['B']).split(',').map(tel => tel.trim()) : []; // Column B = phone numbers
 
                     if (!beneficiarioName) continue;
 
@@ -130,11 +157,8 @@ const AssignmentManager = () => {
                             createdAt: new Date()
                         });
                     }
-                }
-
-                // Refresh assignments
-                const assignmentsSnap = await getDocs(collection(db, 'assignments'));
-                setAssignments(assignmentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                }                // Refresh all data
+                await refreshData();
 
                 setToast({ 
                     message: `Asignaciones procesadas con éxito para ${operadora.nombre}`, 
@@ -219,11 +243,29 @@ const AssignmentManager = () => {
             };
         });
         setAssignmentStats(stats);
-    };
+    };    // Initial data load
+    useEffect(() => {
+        const fetchData = async () => {
+            try {
+                const operadorasSnap = await getDocs(collection(db, 'users'));
+                setOperadoras(operadorasSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                
+                const beneficiariosSnap = await getDocs(collection(db, 'beneficiarios'));
+                setBeneficiarios(beneficiariosSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                
+                const assignmentsSnap = await getDocs(collection(db, 'assignments'));
+                setAssignments(assignmentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            } catch (error) {
+                console.error("Error fetching data:", error);
+                setToast({ message: `Error al cargar datos: ${error.message}`, type: 'error' });
+            }
+        };
+        fetchData();
+    }, []);
 
     // Update stats whenever assignments or operadoras change
     useEffect(() => {
-        if (operadoras.length > 0 && assignments.length > 0) {
+        if (operadoras.length > 0 && assignments.length >= 0) {
             calculateAssignmentStats();
         }
     }, [assignments, operadoras]);
