@@ -59,11 +59,9 @@ const AssignmentManager = () => {
 
     const handleFileChange = (e) => {
         setFile(e.target.files[0]);
-    };
-
-    const handleFileUpload = async () => {
-        if (!file) {
-            setToast({ message: 'Por favor, selecciona un archivo', type: 'error' });
+    };    const handleFileUpload = async () => {
+        if (!file || !selectedOperadora) {
+            setToast({ message: 'Por favor, selecciona una operadora y un archivo', type: 'error' });
             return;
         }
 
@@ -78,53 +76,80 @@ const AssignmentManager = () => {
                 const worksheet = workbook.Sheets[sheetName];
                 const json = utils.sheet_to_json(worksheet);
 
+                const operadora = operadoras.find(op => op.id === selectedOperadora);
+                
                 // Process each row
                 for (const row of json) {
                     const beneficiarioName = row['A']; // Column A = beneficiary name
-                    const telefonos = String(row['B']).split(',').map(tel => tel.trim()); // Column B = phone numbers
+                    const telefonos = String(row['B'] || '').split(',').map(tel => tel.trim()); // Column B = phone numbers
 
-                    // Find or create beneficiary
-                    let beneficiario = beneficiarios.find(b => b.nombre === beneficiarioName);
-                    if (!beneficiario) {
-                        // Create new beneficiary if not exists
-                        const beneficiarioRef = doc(collection(db, 'beneficiarios'));
-                        const newBeneficiario = {
-                            nombre: beneficiarioName,
-                            telefonos: telefonos
-                        };
-                        await setDoc(beneficiarioRef, newBeneficiario);
-                        beneficiario = { id: beneficiarioRef.id, ...newBeneficiario };
-                    }
+                    if (!beneficiarioName) continue;
 
-                    // Create or update assignment
-                    if (row['C']) { // If column C has operadora name
-                        const operadora = operadoras.find(op => op.nombre === row['C']);
-                        if (operadora) {
-                            const assignmentRef = doc(collection(db, 'assignments'));
-                            await setDoc(assignmentRef, {
-                                beneficiarioId: beneficiario.id,
-                                beneficiarioNombre: beneficiario.nombre,
-                                operadoraId: operadora.id,
-                                operadoraNombre: operadora.nombre,
-                                createdAt: new Date()
-                            });
+                    // Check if beneficiary already exists
+                    let beneficiario = beneficiarios.find(b => b.nombre.toLowerCase() === beneficiarioName.toLowerCase());
+                    
+                    // Check if there's an existing assignment for this beneficiary
+                    const existingAssignment = assignments.find(a => 
+                        a.beneficiarioNombre.toLowerCase() === beneficiarioName.toLowerCase()
+                    );
+
+                    if (existingAssignment) {
+                        // Skip if already assigned to this operadora
+                        if (existingAssignment.operadoraId === selectedOperadora) {
+                            continue;
                         }
+                        // Update existing assignment
+                        await setDoc(doc(db, 'assignments', existingAssignment.id), {
+                            beneficiarioId: existingAssignment.beneficiarioId,
+                            beneficiarioNombre: beneficiarioName,
+                            operadoraId: operadora.id,
+                            operadoraNombre: operadora.nombre,
+                            updatedAt: new Date()
+                        });
+                    } else {
+                        // Create new beneficiary if not exists
+                        if (!beneficiario) {
+                            const beneficiarioRef = doc(collection(db, 'beneficiarios'));
+                            const newBeneficiario = {
+                                nombre: beneficiarioName,
+                                telefonos: telefonos
+                            };
+                            await setDoc(beneficiarioRef, newBeneficiario);
+                            beneficiario = { id: beneficiarioRef.id, ...newBeneficiario };
+                        }
+
+                        // Create new assignment
+                        const assignmentRef = doc(collection(db, 'assignments'));
+                        await setDoc(assignmentRef, {
+                            beneficiarioId: beneficiario.id,
+                            beneficiarioNombre: beneficiario.nombre,
+                            operadoraId: operadora.id,
+                            operadoraNombre: operadora.nombre,
+                            createdAt: new Date()
+                        });
                     }
                 }
 
-                setToast({ message: 'Asignaciones procesadas con éxito', type: 'success' });
                 // Refresh assignments
                 const assignmentsSnap = await getDocs(collection(db, 'assignments'));
                 setAssignments(assignmentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+
+                setToast({ 
+                    message: `Asignaciones procesadas con éxito para ${operadora.nombre}`, 
+                    type: 'success' 
+                });
+
+                // Reset selections
+                setSelectedOperadora('');
+                setFile(null);
+                if (document.getElementById('file-upload')) {
+                    document.getElementById('file-upload').value = null;
+                }
             } catch (error) {
                 console.error("Error processing file:", error);
                 setToast({ message: `Error al procesar archivo: ${error.message}`, type: 'error' });
             } finally {
                 setLoading(false);
-                setFile(null);
-                if (document.getElementById('file-upload')) {
-                    document.getElementById('file-upload').value = null;
-                }
             }
         };
 
@@ -181,19 +206,33 @@ const AssignmentManager = () => {
     return (
         <div className="p-6 bg-gray-50 min-h-full">
             <Toast message={toast.message} type={toast.type} onDismiss={() => setToast({ message: '', type: '' })} />
-            
-            <div className="mb-8">
-                <h2 className="text-xl font-bold mb-4">Carga Masiva de Asignaciones</h2>
+              <div className="mb-8">
+                <h2 className="text-xl font-bold mb-4">Carga de Beneficiarios por Teleoperadora</h2>
                 <div className="bg-white p-6 rounded-lg shadow">
-                    <p className="text-gray-600 mb-4">
-                        Sube un archivo Excel con las asignaciones. El formato debe ser:
-                        <br />
-                        Columna A: Nombre del beneficiario
-                        <br />
-                        Columna B: Teléfonos (separados por comas)
-                        <br />
-                        Columna C: Nombre de la operadora (opcional)
-                    </p>
+                    <div className="mb-6">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Seleccionar Teleoperadora
+                        </label>
+                        <select
+                            value={selectedOperadora}
+                            onChange={(e) => setSelectedOperadora(e.target.value)}
+                            className="w-full p-2 border rounded-md mb-4"
+                        >
+                            <option value="">Seleccionar operadora</option>
+                            {operadoras.map(op => (
+                                <option key={op.id} value={op.id}>{op.nombre}</option>
+                            ))}
+                        </select>
+
+                        <p className="text-gray-600 mb-4">
+                            Sube un archivo Excel con los beneficiarios:
+                            <br />
+                            Columna A: Nombre del beneficiario
+                            <br />
+                            Columna B: Teléfonos (separados por comas)
+                        </p>
+                    </div>
+
                     <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
                         <input
                             type="file"
@@ -205,7 +244,7 @@ const AssignmentManager = () => {
                     </div>
                     <button
                         onClick={handleFileUpload}
-                        disabled={loading || !file}
+                        disabled={loading || !file || !selectedOperadora}
                         className="mt-4 w-full bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-blue-600 disabled:bg-gray-400"
                     >
                         {loading ? <ArrowPathIcon className="h-5 w-5 animate-spin"/> : <ArrowUpOnSquareIcon className="h-5 w-5"/>}
