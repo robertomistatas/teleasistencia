@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { getFirestore, collection, getDocs, doc, setDoc, deleteDoc, query, where } from 'firebase/firestore';
-import { read, utils } from 'https://cdn.sheetjs.com/xlsx-0.20.2/package/xlsx.mjs';
+import { read, utils } from 'xlsx';
 import { ArrowUpOnSquareIcon, ArrowPathIcon, TrashIcon } from '@heroicons/react/24/outline';
 
 const db = getFirestore();

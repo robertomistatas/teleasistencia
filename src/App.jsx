@@ -25,8 +25,7 @@ import {
     writeBatch
 } from 'firebase/firestore';
 import { getAnalytics } from 'firebase/analytics';
-// FIX: Import 'xlsx' library from a CDN to resolve the module resolution error.
-import { read, utils } from 'https://cdn.sheetjs.com/xlsx-0.20.2/package/xlsx.mjs';
+import { read, utils } from 'xlsx';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { ArrowUpOnSquareIcon, UserPlusIcon, ArrowPathIcon, TrashIcon, PencilIcon, DocumentArrowUpIcon, ChartBarIcon, UsersIcon, PhoneIcon, ChevronDownIcon, LinkIcon } from '@heroicons/react/24/outline';
 import AssignmentManager from './components/AssignmentManager';
