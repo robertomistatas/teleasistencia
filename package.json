@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "homepage": "https://robermau.github.io/teleasistencia/",
+  "homepage": "https://robertomistatas.github.io/teleasistencia/",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
