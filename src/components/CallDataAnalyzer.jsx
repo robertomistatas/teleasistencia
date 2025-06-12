@@ -88,6 +88,13 @@ const CallDataAnalyzer = () => {
                 for (const row of json) {
                     console.log("Processing row:", row);
                     const rawDate = row['B'];
+                    
+                    // Validar que la fecha no esté vacía
+                    if (!rawDate) {
+                        console.error("Fecha vacía en la fila:", row);
+                        throw new Error(`Falta la fecha en la fila: ${JSON.stringify(row['A'] || 'ID desconocido')}`);
+                    }
+
                     let fecha = new Date();
                     
                     try {
@@ -108,19 +115,37 @@ const CallDataAnalyzer = () => {
                                 const day = parseInt(parts[0], 10);
                                 const month = parseInt(parts[1], 10) - 1; // JavaScript months are 0-based
                                 const year = parseInt(parts[2], 10);
+                                
+                                // Validar que los componentes de la fecha sean números válidos
+                                if (isNaN(day) || isNaN(month) || isNaN(year)) {
+                                    throw new Error(`Formato de fecha inválido: ${rawDate}`);
+                                }
+                                
+                                // Validar rangos de fecha
+                                if (day < 1 || day > 31 || month < 0 || month > 11 || year < 2000 || year > 2100) {
+                                    throw new Error(`Valores de fecha fuera de rango: ${rawDate}`);
+                                }
+                                
                                 fecha = new Date(year, month, day);
                             } else {
                                 fecha = new Date(rawDate);
                             }
                         }
+
+                        // Validate the date
+                        if (isNaN(fecha.getTime())) {
+                            throw new Error(`Fecha inválida: ${rawDate}`);
+                        }
+
+                        // Validar que la fecha no esté en el futuro
+                        const now = new Date();
+                        if (fecha > now) {
+                            throw new Error(`La fecha ${rawDate} está en el futuro`);
+                        }
+
                     } catch (error) {
                         console.error("Error parsing date:", rawDate, error);
-                        throw new Error(`Error en el formato de fecha: ${rawDate}`);
-                    }
-
-                    // Validate the date
-                    if (isNaN(fecha.getTime())) {
-                        throw new Error(`Fecha inválida: ${rawDate}`);
+                        throw new Error(`Error en el formato de fecha: ${rawDate}. La fecha debe estar en formato DD/MM/YYYY`);
                     }
 
                     // Parse time values
@@ -198,9 +223,8 @@ const CallDataAnalyzer = () => {
                 setToast({ message: 'Registros de llamadas cargados con éxito', type: 'success' });
             } catch (error) {
                 console.error("Error processing file:", error);
-                console.error("Error details:", error);
-                setToast({ 
-                    message: `Error al procesar archivo: ${error.message}. Por favor, verifica que las fechas y horas estén en el formato correcto.`, 
+                console.error("Error details:", error);                setToast({ 
+                    message: `Error al procesar archivo: ${error.message}. Las fechas deben estar en formato DD/MM/YYYY y las horas en formato HH:MM.`, 
                     type: 'error' 
                 });
             } finally {

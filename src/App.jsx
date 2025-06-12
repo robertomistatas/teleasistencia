@@ -198,8 +198,13 @@ const Sidebar = ({ setView }) => {
         { name: 'Registro de Llamadas', icon: DocumentArrowUpIcon, view: 'cargar' },
     ];
     return (
-        <div className="w-64 bg-gray-800 text-white flex flex-col min-h-screen">
-            <div className="p-5 text-2xl font-bold border-b border-gray-700">Mistatas</div>
+        <div className="w-64 bg-gray-800 text-white flex flex-col min-h-screen">            <div className="p-5 border-b border-gray-700">
+                <img 
+                    src="https://static.wixstatic.com/media/1831cb_2d8491304a02448cb1751c82852750ff~mv2.png/v1/fill/w_148,h_27,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/Logotipo%20MisTatas%20blanco.png"
+                    alt="Mistatas Logo"
+                    className="h-8 w-auto"
+                />
+            </div>
             <nav className="flex-grow">
                 {navItems.map(item => (
                     <button key={item.name} onClick={() => setView(item.view)} className="w-full text-left flex items-center px-4 py-3 hover:bg-gray-700">
