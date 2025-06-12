@@ -28,8 +28,8 @@ import { getAnalytics } from 'firebase/analytics';
 // FIX: Import 'xlsx' library from a CDN to resolve the module resolution error.
 import { read, utils } from 'https://cdn.sheetjs.com/xlsx-0.20.2/package/xlsx.mjs';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { ArrowUpOnSquareIcon, UserPlusIcon, ArrowPathIcon, TrashIcon, PencilIcon, DocumentArrowUpIcon, ChartBarIcon, UsersIcon, PhoneIcon, ChevronDownIcon } from '@heroicons/react/24/outline';
-
+import { ArrowUpOnSquareIcon, UserPlusIcon, ArrowPathIcon, TrashIcon, PencilIcon, DocumentArrowUpIcon, ChartBarIcon, UsersIcon, PhoneIcon, ChevronDownIcon, LinkIcon } from '@heroicons/react/24/outline';
+import AssignmentManager from './components/AssignmentManager';
 
 // --- Firebase Configuration ---
 const firebaseConfig = {
@@ -191,6 +191,7 @@ const Sidebar = ({ setView }) => {
         { name: 'Dashboard', icon: ChartBarIcon, view: 'dashboard' },
         { name: 'Teleoperadoras', icon: UsersIcon, view: 'operadoras' },
         { name: 'Beneficiarios', icon: PhoneIcon, view: 'beneficiarios' },
+        { name: 'Asignaciones', icon: LinkIcon, view: 'assignments' },
         { name: 'Cargar Datos', icon: DocumentArrowUpIcon, view: 'cargar' },
     ];
     return (
@@ -592,7 +593,7 @@ const CargarDatos = () => {
     
     // Helper to convert Excel serial date to JS Date
     const excelDateToJSDate = (serial) => {
-        if (typeof serial !== 'number' || isNaN(serial)) return new Date(); // Return current date as fallback
+        if (typeof serial !== 'number' || isNaN(serial)) return new Date();
         const utc_days = Math.floor(serial - 25569);
         const utc_value = utc_days * 86400;                                        
         const date_info = new Date(utc_value * 1000);
@@ -610,6 +611,25 @@ const CargarDatos = () => {
         return new Date(date_info.getFullYear(), date_info.getMonth(), date_info.getDate(), hours, minutes, seconds);
     }
 
+    const clearPreviousData = async () => {
+        // Get all existing llamados and beneficiarios
+        const llamadosSnap = await getDocs(collection(db, 'llamados'));
+        const beneficiariosSnap = await getDocs(collection(db, 'beneficiarios'));
+
+        const batch = writeBatch(db);
+
+        // Delete all llamados
+        llamadosSnap.docs.forEach(doc => {
+            batch.delete(doc.ref);
+        });
+
+        // Delete all beneficiarios
+        beneficiariosSnap.docs.forEach(doc => {
+            batch.delete(doc.ref);
+        });
+
+        await batch.commit();
+    };
 
     const handleFileUpload = async () => {
         if (!file) {
@@ -623,88 +643,100 @@ const CargarDatos = () => {
 
         setLoading(true);
 
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-            try {
-                const data = new Uint8Array(e.target.result);
-                const workbook = read(data, { type: 'array' });
-                const sheetName = workbook.SheetNames[0];
-                const worksheet = workbook.Sheets[sheetName];
-                const json = utils.sheet_to_json(worksheet, { header: 'A' });
+        try {
+            // Clear previous data before loading new file
+            await clearPreviousData();
 
-                const batch = writeBatch(db);
-                
-                // Fetch existing beneficiaries to avoid duplicates (basic check)
-                const beneficiariosSnap = await getDocs(collection(db, `beneficiarios`));
-                const existingBeneficiarios = beneficiariosSnap.docs.map(doc => ({ id: doc.id, ...doc.data()}));
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = read(data, { type: 'array' });
+                    const sheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[sheetName];
+                    const json = utils.sheet_to_json(worksheet, { header: 'A' });
 
-
-                for (const row of json.slice(1)) { // Slice(1) to skip header row
-                    const randomOperadora = operadoras[Math.floor(Math.random() * operadoras.length)];
-
-                    const callData = {
-                        fecha: Timestamp.fromDate(excelDateToJSDate(row['B'])),
-                        beneficiarioNombre: row['C'],
-                        comuna: row['D'],
-                        tipo: row['E'],
-                        telefono: String(row['F']),
-                        horaInicio: excelDateToJSDate(row['G']).toLocaleTimeString('es-CL'),
-                        horaFin: excelDateToJSDate(row['H']).toLocaleTimeString('es-CL'),
-                        segundos: Number(row['I']) || 0,
-                        teleoperadoraId: randomOperadora.id,
-                        teleoperadoraNombre: randomOperadora.nombre,
-                    };
+                    const batch = writeBatch(db);
                     
-                    if (!callData.fecha || !callData.beneficiarioNombre) {
-                        console.warn("Skipping invalid row:", row);
-                        continue;
+                    // Track new beneficiarios to avoid duplicates within the same file
+                    const newBeneficiarios = new Map();
+
+                    for (const row of json.slice(1)) {
+                        const randomOperadora = operadoras[Math.floor(Math.random() * operadoras.length)];
+
+                        const callData = {
+                            fecha: Timestamp.fromDate(excelDateToJSDate(row['B'])),
+                            beneficiarioNombre: row['C'],
+                            comuna: row['D'],
+                            tipo: row['E'],
+                            telefono: String(row['F']),
+                            horaInicio: excelDateToJSDate(row['G']).toLocaleTimeString('es-CL'),
+                            horaFin: excelDateToJSDate(row['H']).toLocaleTimeString('es-CL'),
+                            segundos: Number(row['I']) || 0,
+                            teleoperadoraId: randomOperadora.id,
+                            teleoperadoraNombre: randomOperadora.nombre,
+                        };
+                        
+                        if (!callData.fecha || !callData.beneficiarioNombre) {
+                            console.warn("Skipping invalid row:", row);
+                            continue;
+                        }
+
+                        let beneficiarioId;
+                        
+                        // Check if we've already created this beneficiario in this batch
+                        if (newBeneficiarios.has(callData.beneficiarioNombre)) {
+                            beneficiarioId = newBeneficiarios.get(callData.beneficiarioNombre);
+                        } else {
+                            // Create new beneficiario
+                            const beneficiarioRef = doc(collection(db, 'beneficiarios'));
+                            batch.set(beneficiarioRef, {
+                                nombre: callData.beneficiarioNombre,
+                                comuna: callData.comuna,
+                                telefonos: [callData.telefono]
+                            });
+                            beneficiarioId = beneficiarioRef.id;
+                            newBeneficiarios.set(callData.beneficiarioNombre, beneficiarioId);
+                        }
+
+                        const llamadoRef = doc(collection(db, 'llamados'));
+                        batch.set(llamadoRef, { ...callData, beneficiarioId: beneficiarioId });
                     }
 
-                    let beneficiarioId;
-                    const existing = existingBeneficiarios.find(b => b.nombre === callData.beneficiarioNombre);
-
-                    if (existing) {
-                       beneficiarioId = existing.id;
-                    } else {
-                       const beneficiarioRef = doc(collection(db, 'beneficiarios'));
-                       batch.set(beneficiarioRef, {
-                           nombre: callData.beneficiarioNombre,
-                           comuna: callData.comuna,
-                           telefonos: [callData.telefono]
-                       });
-                       beneficiarioId = beneficiarioRef.id;
-                       // Add to local list to handle duplicates within the same file
-                       existingBeneficiarios.push({id: beneficiarioId, nombre: callData.beneficiarioNombre});
+                    await batch.commit();
+                    setToast({ message: `Se cargaron ${json.length - 1} registros nuevos`, type: 'success' });
+                } catch (error) {
+                    console.error("Error processing file:", error);
+                    setToast({ message: `Error al procesar el archivo: ${error.message}`, type: 'error' });
+                } finally {
+                    setLoading(false);
+                    setFile(null);
+                    if(document.getElementById('file-upload')) {
+                        document.getElementById('file-upload').value = null;
                     }
-
-                    const llamadoRef = doc(collection(db, 'llamados'));
-                    batch.set(llamadoRef, { ...callData, beneficiarioId: beneficiarioId });
                 }
-
-                await batch.commit();
-                setToast({ message: `Se procesaron ${json.length - 1} registros con éxito`, type: 'success' });
-            } catch (error) {
-                console.error("Error processing file:", error);
-                setToast({ message: `Error al procesar el archivo: ${error.message}`, type: 'error' });
-            } finally {
-                setLoading(false);
-                setFile(null);
-                if(document.getElementById('file-upload')) {
-                  document.getElementById('file-upload').value = null;
-                }
-            }
-        };
-        reader.readAsArrayBuffer(file);
+            };
+            reader.readAsArrayBuffer(file);
+        } catch (error) {
+            console.error("Error clearing previous data:", error);
+            setToast({ message: `Error al limpiar datos anteriores: ${error.message}`, type: 'error' });
+            setLoading(false);
+        }
     };
 
     return (
         <div className="p-6 bg-gray-50 min-h-full">
             <Toast message={toast.message} type={toast.type} onDismiss={() => setToast({message: '', type: ''})} />
-            <h1 className="text-3xl font-bold text-gray-800 mb-6">Carga Masiva de Llamados</h1>
+            <h1 className="text-3xl font-bold text-gray-800 mb-6">Carga de Datos del Período</h1>
             <div className="bg-white p-8 rounded-lg shadow max-w-xl mx-auto">
-                <p className="text-gray-600 mb-4">
-                    Sube un archivo .xlsx o .csv con los registros de llamadas. El sistema procesará las columnas A-I y las guardará en la base de datos.
-                </p>
+                <div className="mb-6">
+                    <p className="text-gray-600 mb-2">
+                        Sube un archivo .xlsx o .csv con los registros de llamadas del período a analizar.
+                    </p>
+                    <p className="text-amber-600 font-medium mb-4">
+                        Importante: Al subir un nuevo archivo, se eliminarán todos los registros anteriores.
+                    </p>
+                </div>
                 <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
                     <input type="file" id="file-upload" accept=".xlsx, .csv" onChange={handleFileChange} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
                     {file && <p className="mt-2 text-sm text-gray-500">Archivo seleccionado: {file.name}</p>}
@@ -730,6 +762,8 @@ const MainLayout = () => {
                 return <Operadoras />;
             case 'beneficiarios':
                 return <Beneficiarios />;
+            case 'assignments':
+                return <AssignmentManager />;
             case 'cargar':
                 return <CargarDatos />;
             default:
