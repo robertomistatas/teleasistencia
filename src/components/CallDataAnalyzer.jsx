@@ -74,12 +74,14 @@ const CallDataAnalyzer = () => {
         const reader = new FileReader();
         
         reader.onload = async (e) => {
-            try {
-                const data = new Uint8Array(e.target.result);
-                const workbook = read(data, { type: 'array' });
+            try {                const data = new Uint8Array(e.target.result);
+                const workbook = read(data, { type: 'array', cellDates: true });
                 const sheetName = workbook.SheetNames[0];
                 const worksheet = workbook.Sheets[sheetName];
-                const json = utils.sheet_to_json(worksheet);
+                const json = utils.sheet_to_json(worksheet, { 
+                    raw: false,
+                    dateNF: 'dd/mm/yyyy'
+                });
 
                 // Process each call record
                 for (const row of json) {                    // Parse the date from Excel
@@ -118,29 +120,29 @@ const CallDataAnalyzer = () => {
                         throw new Error(`Fecha inválida: ${rawDate}`);
                     }
 
-                    // Parse time values
-                    const parseExcelTime = (timeValue) => {
+                    // Parse time values                    const parseExcelTime = (timeValue) => {
                         if (!timeValue) return null;
                         
                         try {
-                            // If it's already in HH:mm format
-                            if (typeof timeValue === 'string') {
-                                const [hours, minutes] = timeValue.split(':').map(num => parseInt(num, 10));
-                                if (!isNaN(hours) && !isNaN(minutes) && hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60) {
-                                    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
-                                }
-                            }
+                            // Clean the input string
+                            const cleanTime = String(timeValue).trim();
                             
-                            // If it's a number (Excel stores times as fraction of 24 hours)
-                            if (typeof timeValue === 'number') {
-                                const totalMinutes = Math.round(timeValue * 24 * 60);
+                            // Try HH:mm format first
+                            const timeRegex = /^([0-1]?[0-9]|2[0-3]):([0-5][0-9])$/;
+                            if (timeRegex.test(cleanTime)) {
+                                return cleanTime.padStart(5, '0'); // Ensure HH:mm format
+                            }
+
+                            // Try numeric (Excel) format
+                            const numericTime = parseFloat(cleanTime);
+                            if (!isNaN(numericTime) && numericTime >= 0 && numericTime < 1) {
+                                const totalMinutes = Math.round(numericTime * 24 * 60);
                                 const hours = Math.floor(totalMinutes / 60);
                                 const minutes = totalMinutes % 60;
-                                
-                                if (hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60) {
-                                    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
-                                }
+                                return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
                             }
+                            
+                            console.warn("Invalid time format:", timeValue);
                         } catch (error) {
                             console.error("Error parsing time:", timeValue, error);
                         }
