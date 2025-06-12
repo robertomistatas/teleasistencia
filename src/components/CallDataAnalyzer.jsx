@@ -85,48 +85,97 @@ const CallDataAnalyzer = () => {
                 for (const row of json) {                    // Parse the date from Excel
                     const rawDate = row['B'];
                     let fecha;
-                    if (rawDate instanceof Date) {
-                        fecha = rawDate;
-                    } else if (typeof rawDate === 'number') {
-                        // Excel stores dates as number of days since January 1, 1900
-                        fecha = new Date((rawDate - 25569) * 86400 * 1000);
-                    } else {
-                        fecha = new Date(rawDate);
+                    try {
+                        if (rawDate instanceof Date) {
+                            fecha = rawDate;
+                        } else if (typeof rawDate === 'number') {
+                            // Excel stores dates as number of days since January 1, 1900
+                            // Adjust for Excel's date system
+                            const utc_days  = Math.floor(rawDate - 25569);
+                            const utc_value = utc_days * 86400;
+                            const date_info = new Date(utc_value * 1000);
+                            fecha = new Date(date_info.getFullYear(), date_info.getMonth(), date_info.getDate());
+                        } else {
+                            // Try parsing the date string
+                            const parts = String(rawDate).split('/');
+                            if (parts.length === 3) {
+                                // Assuming date format is DD/MM/YYYY
+                                const day = parseInt(parts[0], 10);
+                                const month = parseInt(parts[1], 10) - 1; // JavaScript months are 0-based
+                                const year = parseInt(parts[2], 10);
+                                fecha = new Date(year, month, day);
+                            } else {
+                                fecha = new Date(rawDate);
+                            }
+                        }
+                    } catch (error) {
+                        console.error("Error parsing date:", rawDate, error);
+                        throw new Error(`Error en el formato de fecha: ${rawDate}`);
+                    }
+
+                    // Validate the date
+                    if (isNaN(fecha.getTime())) {
+                        throw new Error(`Fecha inválida: ${rawDate}`);
                     }
 
                     // Parse time values
                     const parseExcelTime = (timeValue) => {
                         if (!timeValue) return null;
                         
-                        // If it's a string in format HH:mm, return as is
-                        if (typeof timeValue === 'string' && timeValue.includes(':')) {
-                            return timeValue;
-                        }
-                        
-                        // If it's a number (Excel stores times as fraction of 24 hours)
-                        if (typeof timeValue === 'number') {
-                            const totalSeconds = Math.round(timeValue * 24 * 60 * 60);
-                            const hours = Math.floor(totalSeconds / 3600);
-                            const minutes = Math.floor((totalSeconds % 3600) / 60);
-                            return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+                        try {
+                            // If it's already in HH:mm format
+                            if (typeof timeValue === 'string') {
+                                const [hours, minutes] = timeValue.split(':').map(num => parseInt(num, 10));
+                                if (!isNaN(hours) && !isNaN(minutes) && hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60) {
+                                    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+                                }
+                            }
+                            
+                            // If it's a number (Excel stores times as fraction of 24 hours)
+                            if (typeof timeValue === 'number') {
+                                const totalMinutes = Math.round(timeValue * 24 * 60);
+                                const hours = Math.floor(totalMinutes / 60);
+                                const minutes = totalMinutes % 60;
+                                
+                                if (hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60) {
+                                    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+                                }
+                            }
+                        } catch (error) {
+                            console.error("Error parsing time:", timeValue, error);
                         }
                         
                         return null;
                     };
 
                     const horaInicio = parseExcelTime(row['G']);
-                    const horaFin = parseExcelTime(row['H']);
+                    const horaFin = parseExcelTime(row['H']);                    // Validate required fields
+                    if (!row['A'] || !fecha || !row['C'] || !row['E']) {
+                        throw new Error(`Faltan campos requeridos en la fila: ${JSON.stringify(row)}`);
+                    }
+
+                    // Normalize the tipo value
+                    const tipo = String(row['E'] || '').toLowerCase().trim();
+                    if (tipo !== 'entrante' && tipo !== 'saliente') {
+                        throw new Error(`Tipo de llamada inválido: ${row['E']}. Debe ser 'entrante' o 'saliente'`);
+                    }
+
+                    // Validate segundos
+                    const segundos = parseInt(row['I']);
+                    if (isNaN(segundos) || segundos < 0) {
+                        throw new Error(`Duración inválida: ${row['I']}. Debe ser un número positivo`);
+                    }
 
                     const callRecord = {
-                        idLlamado: row['A'] || '',
+                        idLlamado: String(row['A']).trim(),
                         fecha: fecha,
-                        beneficiarioNombre: row['C'],
-                        comuna: row['D'],
-                        tipo: (row['E'] || '').toLowerCase(), // entrante/saliente
-                        telefono: row['F'],
+                        beneficiarioNombre: String(row['C']).trim(),
+                        comuna: String(row['D'] || '').trim(),
+                        tipo: tipo,
+                        telefono: String(row['F'] || '').trim(),
                         horaInicio: horaInicio,
                         horaFin: horaFin,
-                        segundos: parseInt(row['I']) || 0
+                        segundos: segundos
                     };
 
                     // Create new call record
@@ -141,7 +190,11 @@ const CallDataAnalyzer = () => {
                 setToast({ message: `Registros de llamadas cargados con éxito`, type: 'success' });
             } catch (error) {
                 console.error("Error processing file:", error);
-                setToast({ message: `Error al procesar archivo: ${error.message}`, type: 'error' });
+                console.error("Error details:", error);
+                setToast({ 
+                    message: `Error al procesar archivo: ${error.message}. Por favor, verifica que las fechas y horas estén en el formato correcto.`, 
+                    type: 'error' 
+                });
             } finally {
                 setLoading(false);
                 setFile(null);
