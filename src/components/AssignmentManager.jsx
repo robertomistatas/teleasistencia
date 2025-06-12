@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { collection, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { read, utils } from 'xlsx';
-import { ArrowUpOnSquareIcon, ArrowPathIcon, TrashIcon } from '@heroicons/react/24/outline';
+import { ArrowUpOnSquareIcon, ArrowPathIcon, TrashIcon, ChevronDownIcon } from '@heroicons/react/24/outline';
 import { db } from '../App';
 
 const Toast = ({ message, type, onDismiss }) => {
@@ -34,6 +34,8 @@ const AssignmentManager = () => {
     const [beneficiarios, setBeneficiarios] = useState([]);
     const [selectedOperadora, setSelectedOperadora] = useState('');
     const [selectedBeneficiario, setSelectedBeneficiario] = useState('');
+    const [expandedOperadora, setExpandedOperadora] = useState(null);
+    const [assignmentStats, setAssignmentStats] = useState([]);
 
     useEffect(() => {
         const fetchData = async () => {
@@ -203,6 +205,29 @@ const AssignmentManager = () => {
         }
     };
 
+    const calculateAssignmentStats = () => {
+        const stats = operadoras.map(op => {
+            const operadoraAssignments = assignments.filter(a => a.operadoraId === op.id);
+            return {
+                ...op,
+                beneficiariosCount: operadoraAssignments.length,
+                beneficiarios: operadoraAssignments.map(a => ({
+                    id: a.beneficiarioId,
+                    nombre: a.beneficiarioNombre,
+                    assignmentId: a.id
+                }))
+            };
+        });
+        setAssignmentStats(stats);
+    };
+
+    // Update stats whenever assignments or operadoras change
+    useEffect(() => {
+        if (operadoras.length > 0 && assignments.length > 0) {
+            calculateAssignmentStats();
+        }
+    }, [assignments, operadoras]);
+
     return (
         <div className="p-6 bg-gray-50 min-h-full">
             <Toast message={toast.message} type={toast.type} onDismiss={() => setToast({ message: '', type: '' })} />
@@ -295,9 +320,7 @@ const AssignmentManager = () => {
                         Crear Asignación
                     </button>
                 </div>
-            </div>
-
-            <div>
+            </div>            <div>
                 <h2 className="text-xl font-bold mb-4">Asignaciones Actuales</h2>
                 <div className="bg-white rounded-lg shadow overflow-hidden">
                     <table className="min-w-full divide-y divide-gray-200">
@@ -307,7 +330,7 @@ const AssignmentManager = () => {
                                     Operadora
                                 </th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    Beneficiario
+                                    Beneficiarios Asignados
                                 </th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                     Acciones
@@ -315,23 +338,49 @@ const AssignmentManager = () => {
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
-                            {assignments.map(assignment => (
-                                <tr key={assignment.id}>
-                                    <td className="px-6 py-4 whitespace-nowrap">
-                                        {assignment.operadoraNombre}
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap">
-                                        {assignment.beneficiarioNombre}
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap">
-                                        <button
-                                            onClick={() => handleDeleteAssignment(assignment.id)}
-                                            className="text-red-600 hover:text-red-900"
+                            {assignmentStats.map(stat => (
+                                <React.Fragment key={stat.id}>
+                                    <tr className={`${expandedOperadora === stat.id ? 'bg-blue-50' : ''} hover:bg-gray-50 cursor-pointer`}>
+                                        <td 
+                                            className="px-6 py-4 whitespace-nowrap font-medium"
+                                            onClick={() => setExpandedOperadora(expandedOperadora === stat.id ? null : stat.id)}
                                         >
-                                            <TrashIcon className="h-5 w-5" />
-                                        </button>
-                                    </td>
-                                </tr>
+                                            <div className="flex items-center">
+                                                <ChevronDownIcon 
+                                                    className={`h-5 w-5 mr-2 transform transition-transform ${
+                                                        expandedOperadora === stat.id ? 'rotate-180' : ''
+                                                    }`}
+                                                />
+                                                {stat.nombre}
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap">
+                                            {stat.beneficiariosCount} beneficiarios
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap">
+                                            {/* Add any operadora-level actions here */}
+                                        </td>
+                                    </tr>
+                                    {expandedOperadora === stat.id && stat.beneficiarios.map(beneficiario => (
+                                        <tr key={beneficiario.id} className="bg-gray-50">
+                                            <td className="px-6 py-2 pl-12 whitespace-nowrap text-sm">
+                                                {beneficiario.nombre}
+                                            </td>
+                                            <td className="px-6 py-2 whitespace-nowrap text-sm">
+                                                {/* Add any beneficiary details here */}
+                                            </td>
+                                            <td className="px-6 py-2 whitespace-nowrap text-sm">
+                                                <button
+                                                    onClick={() => handleDeleteAssignment(beneficiario.assignmentId)}
+                                                    className="text-red-600 hover:text-red-900"
+                                                    title="Eliminar asignación"
+                                                >
+                                                    <TrashIcon className="h-4 w-4" />
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </React.Fragment>
                             ))}
                         </tbody>
                     </table>
