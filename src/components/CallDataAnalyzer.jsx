@@ -74,7 +74,8 @@ const CallDataAnalyzer = () => {
         const reader = new FileReader();
         
         reader.onload = async (e) => {
-            try {                const data = new Uint8Array(e.target.result);
+            try {
+                const data = new Uint8Array(e.target.result);
                 const workbook = read(data, { type: 'array', cellDates: true });
                 const sheetName = workbook.SheetNames[0];
                 const worksheet = workbook.Sheets[sheetName];
@@ -84,9 +85,11 @@ const CallDataAnalyzer = () => {
                 });
 
                 // Process each call record
-                for (const row of json) {                    // Parse the date from Excel
+                for (const row of json) {
+                    console.log("Processing row:", row);
                     const rawDate = row['B'];
-                    let fecha;
+                    let fecha = new Date();
+                    
                     try {
                         if (rawDate instanceof Date) {
                             fecha = rawDate;
@@ -120,7 +123,8 @@ const CallDataAnalyzer = () => {
                         throw new Error(`Fecha inválida: ${rawDate}`);
                     }
 
-                    // Parse time values                    const parseExcelTime = (timeValue) => {
+                    // Parse time values
+                    const parseExcelTime = (timeValue) => {
                         if (!timeValue) return null;
                         
                         try {
@@ -143,15 +147,17 @@ const CallDataAnalyzer = () => {
                             }
                             
                             console.warn("Invalid time format:", timeValue);
+                            return null;
                         } catch (error) {
                             console.error("Error parsing time:", timeValue, error);
+                            return null;
                         }
-                        
-                        return null;
                     };
 
                     const horaInicio = parseExcelTime(row['G']);
-                    const horaFin = parseExcelTime(row['H']);                    // Validate required fields
+                    const horaFin = parseExcelTime(row['H']);
+
+                    // Validate required fields
                     if (!row['A'] || !fecha || !row['C'] || !row['E']) {
                         throw new Error(`Faltan campos requeridos en la fila: ${JSON.stringify(row)}`);
                     }
@@ -189,7 +195,7 @@ const CallDataAnalyzer = () => {
                 const llamadosSnap = await getDocs(collection(db, 'llamados'));
                 setLlamados(llamadosSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
 
-                setToast({ message: `Registros de llamadas cargados con éxito`, type: 'success' });
+                setToast({ message: 'Registros de llamadas cargados con éxito', type: 'success' });
             } catch (error) {
                 console.error("Error processing file:", error);
                 console.error("Error details:", error);
@@ -207,13 +213,18 @@ const CallDataAnalyzer = () => {
         };
 
         reader.readAsArrayBuffer(file);
-    };    // Calculate statistics
+    };
+
+    // Calculate statistics
     const getCallStats = () => {
         let filteredCalls = llamados;
 
         if (selectedDateRange.start) {
             const startDate = new Date(selectedDateRange.start);
-            filteredCalls = filteredCalls.filter(call => call.fecha >= startDate);
+            filteredCalls = filteredCalls.filter(call => {
+                const callDate = call.fecha instanceof Date ? call.fecha : new Date(call.fecha);
+                return callDate >= startDate;
+            });
         }
 
         if (selectedDateRange.end) {
