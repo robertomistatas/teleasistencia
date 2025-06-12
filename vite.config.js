@@ -7,6 +7,7 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
+    assetsDir: 'assets',
     rollupOptions: {
       output: {
         manualChunks: {
@@ -14,7 +15,10 @@ export default defineConfig({
           firebase: ['firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/analytics'],
           charts: ['recharts'],
           xlsx: ['xlsx']
-        }
+        },
+        assetFileNames: 'assets/[name].[hash].[ext]',
+        chunkFileNames: 'assets/[name].[hash].js',
+        entryFileNames: 'assets/[name].[hash].js'
       }
     }
   },

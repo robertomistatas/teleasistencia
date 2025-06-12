@@ -29,10 +29,14 @@ jobs:
         run: npm ci
       - name: Build
         run: npm run build
+      - name: Fix permissions
+        run: |
+          chmod -R 755 dist/
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: dist/
+          artifact-name: github-pages
 
   deploy:
     environment:
