@@ -33,6 +33,13 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Configure Headers
+        run: |
+          echo '/*' > dist/_headers
+          echo '  Cache-Control: public, max-age=31536000' >> dist/_headers
+          echo '/index.html' >> dist/_headers
+          echo '  Cache-Control: public, max-age=0, must-revalidate' >> dist/_headers
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:

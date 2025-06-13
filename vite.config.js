@@ -16,10 +16,24 @@ export default defineConfig({
           xlsx: ['xlsx']
         }
       }
+    },
+    // Asegurar que los assets tienen un hash único
+    assetsInlineLimit: 4096,
+    cssCodeSplit: true,
+    chunkSizeWarningLimit: 500,
+    minify: 'terser',
+    terserOptions: {
+      compress: {
+        drop_console: true,
+        drop_debugger: true
+      }
     }
   },
   server: {
     port: 3000,
-    open: true
+    strictPort: true,
+    headers: {
+      'Cache-Control': 'no-store'
+    }
   }
 })
