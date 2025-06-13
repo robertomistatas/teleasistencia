@@ -76,12 +76,18 @@ const CallDataAnalyzer = () => {
         reader.onload = async (e) => {
             try {
                 const data = new Uint8Array(e.target.result);
-                const workbook = read(data, { type: 'array', cellDates: true });
+                const workbook = read(data, { 
+                    type: 'array', 
+                    cellDates: true,
+                    dateNF: 'dd/mm/yyyy',
+                    raw: false
+                });
                 const sheetName = workbook.SheetNames[0];
                 const worksheet = workbook.Sheets[sheetName];
                 const json = utils.sheet_to_json(worksheet, { 
                     raw: false,
-                    dateNF: 'dd/mm/yyyy'
+                    dateNF: 'dd/mm/yyyy',
+                    defval: ''  // Valor por defecto para celdas vacías
                 });
 
                 // Process each call record
@@ -92,47 +98,55 @@ const CallDataAnalyzer = () => {
                     // Validar que la fecha no esté vacía
                     if (!rawDate) {
                         console.error("Fecha vacía en la fila:", row);
-                        throw new Error(`Falta la fecha en la fila: ${JSON.stringify(row['A'] || 'ID desconocido')}`);
+                        throw new Error(`Falta la fecha en la fila con ID: ${row['A'] || 'desconocido'}`);
                     }
 
-                    let fecha = new Date();
+                    let fecha;
                     
                     try {
-                        if (rawDate instanceof Date) {
-                            fecha = rawDate;
-                        } else if (typeof rawDate === 'number') {
+                        // Si es una fecha de Excel (número)
+                        if (typeof rawDate === 'number') {
                             // Excel stores dates as number of days since January 1, 1900
-                            // Adjust for Excel's date system
-                            const utc_days  = Math.floor(rawDate - 25569);
+                            const utc_days = Math.floor(rawDate - 25569);
                             const utc_value = utc_days * 86400;
-                            const date_info = new Date(utc_value * 1000);
-                            fecha = new Date(date_info.getFullYear(), date_info.getMonth(), date_info.getDate());
-                        } else {
-                            // Try parsing the date string
-                            const parts = String(rawDate).split('/');
+                            fecha = new Date(utc_value * 1000);
+                        }
+                        // Si es un string en formato DD/MM/YYYY
+                        else if (typeof rawDate === 'string') {
+                            const parts = rawDate.split('/');
                             if (parts.length === 3) {
-                                // Assuming date format is DD/MM/YYYY
                                 const day = parseInt(parts[0], 10);
-                                const month = parseInt(parts[1], 10) - 1; // JavaScript months are 0-based
-                                const year = parseInt(parts[2], 10);
+                                const month = parseInt(parts[1], 10) - 1;
+                                let year = parseInt(parts[2], 10);
                                 
-                                // Validar que los componentes de la fecha sean números válidos
+                                // Ajustar año si es necesario
+                                if (year < 100) {
+                                    year += year < 50 ? 2000 : 1900;
+                                }
+
                                 if (isNaN(day) || isNaN(month) || isNaN(year)) {
                                     throw new Error(`Formato de fecha inválido: ${rawDate}`);
                                 }
-                                
-                                // Validar rangos de fecha
+
                                 if (day < 1 || day > 31 || month < 0 || month > 11 || year < 2000 || year > 2100) {
                                     throw new Error(`Valores de fecha fuera de rango: ${rawDate}`);
                                 }
-                                
+
                                 fecha = new Date(year, month, day);
                             } else {
+                                // Intentar parsear como fecha ISO
                                 fecha = new Date(rawDate);
                             }
                         }
+                        // Si ya es un objeto Date
+                        else if (rawDate instanceof Date) {
+                            fecha = rawDate;
+                        }
+                        else {
+                            throw new Error(`Formato de fecha no reconocido: ${rawDate}`);
+                        }
 
-                        // Validate the date
+                        // Validar que la fecha sea válida
                         if (isNaN(fecha.getTime())) {
                             throw new Error(`Fecha inválida: ${rawDate}`);
                         }
@@ -153,34 +167,67 @@ const CallDataAnalyzer = () => {
                         if (!timeValue) return null;
                         
                         try {
-                            // Clean the input string
+                            // Limpiar el valor de entrada
                             const cleanTime = String(timeValue).trim();
                             
-                            // Try HH:mm format first
+                            // Probar primero el formato HH:mm
                             const timeRegex = /^([0-1]?[0-9]|2[0-3]):([0-5][0-9])$/;
                             if (timeRegex.test(cleanTime)) {
-                                return cleanTime.padStart(5, '0'); // Ensure HH:mm format
+                                return cleanTime.padStart(5, '0'); // Asegurar formato HH:mm
                             }
 
-                            // Try numeric (Excel) format
+                            // Probar formato numérico de Excel
                             const numericTime = parseFloat(cleanTime);
-                            if (!isNaN(numericTime) && numericTime >= 0 && numericTime < 1) {
-                                const totalMinutes = Math.round(numericTime * 24 * 60);
-                                const hours = Math.floor(totalMinutes / 60);
-                                const minutes = totalMinutes % 60;
-                                return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+                            if (!isNaN(numericTime)) {
+                                if (numericTime >= 0 && numericTime < 1) {
+                                    // Formato de Excel (fracción de día)
+                                    const totalMinutes = Math.round(numericTime * 24 * 60);
+                                    const hours = Math.floor(totalMinutes / 60);
+                                    const minutes = totalMinutes % 60;
+                                    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+                                } else if (numericTime >= 1 && numericTime <= 2359) {
+                                    // Formato militar (HHMM)
+                                    const hours = Math.floor(numericTime / 100);
+                                    const minutes = numericTime % 100;
+                                    if (hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59) {
+                                        return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+                                    }
+                                }
                             }
                             
-                            console.warn("Invalid time format:", timeValue);
+                            // Intentar otros formatos comunes
+                            const formats = [
+                                /^(\d{1,2})[:](\d{2})$/, // HH:mm o H:mm
+                                /^(\d{1,2})[.](\d{2})$/, // HH.mm o H.mm
+                                /^(\d{4})$/ // HHMM
+                            ];
+
+                            for (const format of formats) {
+                                const match = cleanTime.match(format);
+                                if (match) {
+                                    let hours = parseInt(match[1], 10);
+                                    let minutes = parseInt(match[2] || cleanTime.slice(-2), 10);
+                                    
+                                    if (hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59) {
+                                        return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+                                    }
+                                }
+                            }
+                            
+                            console.warn("Formato de hora no válido:", timeValue);
                             return null;
                         } catch (error) {
-                            console.error("Error parsing time:", timeValue, error);
+                            console.error("Error al procesar la hora:", timeValue, error);
                             return null;
                         }
                     };
 
                     const horaInicio = parseExcelTime(row['G']);
                     const horaFin = parseExcelTime(row['H']);
+
+                    if (!horaInicio || !horaFin) {
+                        throw new Error(`Hora inválida en la fila con ID ${row['A']}: Inicio=${row['G']}, Fin=${row['H']}`);
+                    }
 
                     // Validate required fields
                     if (!row['A'] || !fecha || !row['C'] || !row['E']) {
