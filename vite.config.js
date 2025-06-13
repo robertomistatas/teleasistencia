@@ -5,6 +5,9 @@ export default defineConfig({
   plugins: [react()],
   base: '/teleasistencia/',
   build: {
+    manifest: true,
+    outDir: 'dist',
+    assetsDir: 'assets',
     outDir: 'dist',
     sourcemap: false,
     rollupOptions: {
