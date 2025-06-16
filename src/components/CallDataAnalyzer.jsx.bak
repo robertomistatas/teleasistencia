@@ -1,0 +1,719 @@
+import React, { useState, useEffect, useContext, memo } from 'react';
+import { read, utils } from 'xlsx';
+import { ArrowUpOnSquareIcon, ArrowPathIcon, ChartBarIcon } from '@heroicons/react/24/outline';
+import { DataContext } from '../App';
+import { db } from '../App';
+
+// Componente Toast para mostrar mensajes
+const Toast = memo(({ message, type, onDismiss }) => {
+    useEffect(() => {
+        if (message) {
+            const timer = setTimeout(onDismiss, 3000);
+            return () => clearTimeout(timer);
+        }
+    }, [message, onDismiss]);
+
+    if (!message) return null;
+
+    return (
+        <div className={`fixed bottom-5 right-5 text-white px-6 py-3 rounded-lg shadow-lg ${
+            type === 'success' ? 'bg-green-500' : 'bg-red-500'
+        }`}>
+            {message}
+        </div>
+    );
+});
+
+// Componente LoadingOverlay separado para mostrar el progreso
+const LoadingOverlay = memo(({ progress }) => (
+    <div className="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <div className="flex flex-col items-center">
+                <ArrowPathIcon className="w-12 h-12 animate-spin text-blue-500 mb-4" />
+                <h3 className="text-lg font-semibold mb-2">{progress.status || 'Procesando archivo...'}</h3>
+                <div className="w-full bg-gray-200 rounded-full h-2.5 mb-2">
+                    <div 
+                        className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
+                        style={{ 
+                            width: `${progress.total ? (progress.current / progress.total * 100) : 0}%` 
+                        }}
+                    />
+                </div>
+                <p className="text-sm text-gray-600">
+                    Procesando {progress.current} de {progress.total} registros
+                </p>
+            </div>
+        </div>
+    </div>
+));
+
+// Definición de columnas esperadas y sus validaciones
+const REQUIRED_COLUMNS = [
+    {
+        key: 'ID',
+        aliases: ['id'],
+        validate: (val) => val !== undefined && val !== ''
+    },
+    {
+        key: 'FECHA',
+        aliases: ['fecha'],
+        validate: (val) => {
+            if (!val) return false;
+            const formats = [
+                /^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/,
+                /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/
+            ];
+            return formats.some(format => format.test(val));
+        }
+    },
+    {
+        key: 'BENEFICIARIO',
+        aliases: ['beneficiario'],
+        validate: (val) => val !== undefined && val !== ''
+    },
+    {
+        key: 'COMUNA',
+        aliases: ['comuna'],
+        optional: true,
+        validate: () => true
+    },
+    {
+        key: 'EVENTO',
+        aliases: ['evento'],
+        validate: (val) => val !== undefined && val !== ''
+    },
+    {
+        key: 'TELEFONO',
+        aliases: ['fono'],
+        optional: true,
+        validate: () => true
+    },
+    {
+        key: 'HORA_INICIO',
+        aliases: ['ini'],
+        validate: (val) => {
+            if (!val) return false;
+            return /^([0-1]?[0-9]|2[0-3]):([0-5][0-9])$/.test(val.trim());
+        }
+    },
+    {
+        key: 'HORA_FIN',
+        aliases: ['fin'],
+        validate: (val) => {
+            if (!val) return false;
+            return /^([0-1]?[0-9]|2[0-3]):([0-5][0-9])$/.test(val.trim());
+        }
+    },
+    {
+        key: 'SEGUNDOS',
+        aliases: ['seg'],
+        optional: true,
+        validate: (val) => {
+            if (!val) return true;
+            const num = parseInt(val, 10);
+            return !isNaN(num) && num >= 0;
+        }
+    },
+    {
+        key: 'RESULTADO',
+        aliases: ['resultado'],
+        optional: true,
+        validate: () => true
+    },
+    {
+        key: 'OBSERVACION',
+        aliases: ['observación', 'observacion'],
+        optional: true,
+        validate: () => true
+    },
+    {
+        key: 'API_ID',
+        aliases: ['api id'],
+        optional: true,
+        validate: () => true
+    }
+    {
+        key: 'RESULTADO',
+        aliases: ['resultado'],
+        optional: true,
+        validate: () => true
+    },
+    {
+        key: 'OBSERVACION',
+        aliases: ['observación'],
+        optional: true,
+        validate: () => true
+    },
+    {
+        key: 'API_ID',
+        aliases: ['api id'],
+        optional: true,
+        validate: () => true
+    }
+];
+
+const StatCard = ({ title, value, subtitle, color = 'blue' }) => (
+    <div className="bg-white p-6 rounded-lg shadow-md">
+        <h3 className="text-gray-500 text-sm">{title}</h3>
+        <p className={`text-${color}-600 text-2xl font-semibold`}>{value}</p>
+        {subtitle && <p className="text-gray-400 text-xs">{subtitle}</p>}
+    </div>
+);
+
+const CallDataAnalyzer = () => {
+    const { assignments, updateCallData } = useContext(DataContext);
+    const [file, setFile] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [progress, setProgress] = useState({ current: 0, total: 0, status: '' });
+    const [toast, setToast] = useState({ message: '', type: '' });
+    const [error, setError] = useState(null);
+    const [stats, setStats] = useState({
+        totalLlamadas: 0,
+        entrantes: 0,
+        salientes: 0,
+        duracionTotal: 0,
+        duracionPromedio: 0,
+        beneficiarios: new Set()
+    });
+
+    const handleFileChange = (e) => {
+        const selectedFile = e.target.files[0];
+        console.log('File selected:', selectedFile);
+        if (selectedFile) {
+            setFile(selectedFile);
+            // Reset states when new file is selected
+            setError(null);
+            setProgress({ current: 0, total: 0, status: '' });
+            setStats({
+                totalLlamadas: 0,
+                entrantes: 0,
+                salientes: 0,
+                duracionTotal: 0,
+                duracionPromedio: 0,
+                beneficiarios: new Set()
+            });
+        }
+    };
+
+    const identifyColumns = (headerRow) => {
+        const columnMap = {};
+        const headerCells = headerRow.map(cell => cell?.toString().toLowerCase().trim());
+        
+        // Encontrar el índice de cada columna requerida
+        REQUIRED_COLUMNS.forEach(column => {
+            const index = headerCells.findIndex(cell => 
+                column.aliases.includes(cell)
+            );
+            
+            columnMap[column.key] = {
+                index,
+                validate: column.validate,
+                optional: column.optional || false
+            };
+        });
+
+        // Verificar columnas requeridas
+        const missingColumns = REQUIRED_COLUMNS
+            .filter(col => !col.optional && columnMap[col.key].index === -1)
+            .map(col => col.key);
+
+        if (missingColumns.length > 0) {
+            throw new Error(`Columnas requeridas no encontradas: ${missingColumns.join(', ')}\n` +
+                `Columnas esperadas: ${REQUIRED_COLUMNS.map(c => c.aliases[0]).join(', ')}\n` +
+                `Columnas encontradas: ${headerCells.join(', ')}`);
+        }
+
+        return columnMap;
+    };
+
+    const validateRow = (row, columnMap) => {
+        // Ignorar filas completamente vacías
+        if (row.every(cell => !cell || cell.toString().trim() === '')) {
+            return { isValid: false, errors: ['Fila vacía'] };
+        }
+
+        const errors = [];
+
+        // Validar cada columna requerida
+        Object.entries(columnMap).forEach(([key, { index, validate, optional }]) => {
+            if (index === -1 && optional) return;
+            
+            const value = row[index]?.toString().trim() || '';
+            if (!validate(value)) {
+                errors.push(`${key}: valor inválido o faltante (${value || 'vacío'})`);
+            }
+        });
+
+        return {
+            isValid: errors.length === 0,
+            errors
+        };
+    };
+
+    const parseDate = (dateStr) => {
+        const formats = [
+            { regex: /^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/, dayIdx: 1, monthIdx: 2, yearIdx: 3 },
+            { regex: /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/, dayIdx: 3, monthIdx: 2, yearIdx: 1 }
+        ];
+
+        for (const format of formats) {
+            const match = dateStr.match(format.regex);
+            if (match) {
+                const day = parseInt(match[format.dayIdx], 10);
+                const month = parseInt(match[format.monthIdx], 10);
+                const year = parseInt(match[format.yearIdx], 10);
+
+                if (month < 1 || month > 12) continue;
+                if (day < 1 || day > 31) continue;
+                if (year < 1900 || year > 2100) continue;
+
+                const date = new Date(year, month - 1, day);
+                if (date.getMonth() === month - 1) {
+                    return date;
+                }
+            }
+        }
+        return null;
+    };    const calculateDuration = (horaInicio, horaFin) => {
+        const [horaIni, minIni] = horaInicio.split(':').map(n => parseInt(n, 10));
+        const [horaF, minF] = horaFin.split(':').map(n => parseInt(n, 10));
+        
+        let segundos = (horaF * 3600 + minF * 60) - (horaIni * 3600 + minIni * 60);
+        if (segundos < 0) segundos += 24 * 3600;
+        
+        return segundos;
+    };
+
+    const processRow = (row, columnMap) => {
+        const getValue = (key) => {
+            const { index } = columnMap[key];
+            return index === -1 ? '' : (row[index]?.toString().trim() || '');
+        };
+
+        const fecha = parseDate(getValue('FECHA'));
+        if (!fecha) {
+            throw new Error(`Fecha inválida: ${getValue('FECHA')}`);
+        }        const horaInicio = getValue('HORA_INICIO');
+        const horaFin = getValue('HORA_FIN');
+        
+        // Obtener segundos del Excel o calcularlos si no están presentes
+        let segundos = 0;
+        const segundosStr = getValue('SEGUNDOS');
+        if (segundosStr && segundosStr !== '') {
+            segundos = parseInt(segundosStr, 10);
+            if (isNaN(segundos) || segundos < 0) {
+                throw new Error(`Valor inválido para segundos: ${segundosStr}`);
+            }
+        } else {
+            segundos = calculateDuration(horaInicio, horaFin);
+        }
+
+        if (segundos > 24 * 3600) {
+            throw new Error('La duración de la llamada excede 24 horas');
+        }
+
+        return {
+            id: getValue('ID'),
+            fecha: fecha.toISOString().split('T')[0],
+            beneficiario: getValue('BENEFICIARIO'),
+            comuna: getValue('COMUNA'),
+            evento: getValue('EVENTO'),
+            telefono: getValue('TELEFONO'),
+            horaInicio,
+            horaFin,
+            segundos
+        };
+    };
+
+    const processCallData = (rows, { assignments }) => {
+        const llamadosPorOperadora = {};
+        const rendimientoPorOperadora = {};
+        const beneficiariosAtendidos = new Set();
+        let totalLlamados = 0;
+        let tiempoTotal = 0;
+
+        // Crear un mapa de búsqueda rápida para asignaciones
+        const beneficiarioMap = new Map(); // Por nombre
+        const telefonoMap = new Map();     // Por teléfono
+
+        // Poblar los mapas de búsqueda con las asignaciones
+        Object.entries(assignments.asignaciones || {}).forEach(([operadora, datos]) => {
+            datos.beneficiarios.forEach(beneficiario => {
+                // Limpiar y normalizar el nombre para comparación
+                const nombreNormalizado = beneficiario.nombre.toLowerCase().trim();
+                beneficiarioMap.set(nombreNormalizado, operadora);
+
+                // Limpiar y normalizar el teléfono para comparación
+                const telefonoLimpio = beneficiario.telefono.replace(/[^0-9]/g, '');
+                if (telefonoLimpio) {
+                    telefonoMap.set(telefonoLimpio, operadora);
+                }
+            });
+
+            // Inicializar contadores para cada operadora
+            llamadosPorOperadora[operadora] = 0;
+            rendimientoPorOperadora[operadora] = { llamados: 0, minutos: 0 };
+        });
+
+        // Procesar cada llamada
+        rows.forEach(row => {
+            let operadoraAsignada = 'Sin Asignar';
+            const beneficiario = (row['BENEFICIARIO'] || '').toLowerCase().trim();
+            const telefono = (row['FONO'] || '').replace(/[^0-9]/g, '');
+
+            // Buscar la teleoperadora asignada
+            if (beneficiario && beneficiario !== 'no identificado') {
+                operadoraAsignada = beneficiarioMap.get(beneficiario) || 'Sin Asignar';
+            }
+            if (operadoraAsignada === 'Sin Asignar' && telefono) {
+                operadoraAsignada = telefonoMap.get(telefono) || 'Sin Asignar';
+            }
+
+            // Actualizar contadores
+            if (!llamadosPorOperadora[operadoraAsignada]) {
+                llamadosPorOperadora[operadoraAsignada] = 0;
+                rendimientoPorOperadora[operadoraAsignada] = { llamados: 0, minutos: 0 };
+            }
+            llamadosPorOperadora[operadoraAsignada]++;
+
+            // Calcular tiempo en minutos
+            let minutos = 0;
+            if (row['SEGUNDOS']) {
+                const segundos = parseInt(row['SEGUNDOS'], 10) || 0;
+                minutos = Math.round(segundos / 60);
+            } else if (row['HORA_INICIO'] && row['HORA_FIN']) {
+                const inicio = new Date(`2000/01/01 ${row['HORA_INICIO']}`);
+                const fin = new Date(`2000/01/01 ${row['HORA_FIN']}`);
+                if (fin < inicio) fin.setDate(fin.getDate() + 1);
+                minutos = Math.round((fin - inicio) / (1000 * 60));
+            }
+
+            rendimientoPorOperadora[operadoraAsignada].llamados++;
+            rendimientoPorOperadora[operadoraAsignada].minutos += minutos;
+
+            // Totales
+            totalLlamados++;
+            tiempoTotal += minutos;
+
+            // Registrar beneficiario atendido
+            if (beneficiario && beneficiario !== 'no identificado') {
+                beneficiariosAtendidos.add(beneficiario);
+            }
+        });
+
+        console.log('Datos procesados:', {
+            llamadosPorOperadora,
+            rendimientoPorOperadora,
+            beneficiariosAtendidos: beneficiariosAtendidos.size,
+            totalLlamados,
+            tiempoTotal
+        });
+
+        return {
+            llamadosPorOperadora,
+            rendimientoPorOperadora,
+            beneficiariosAtendidos,
+            totalLlamados,
+            tiempoTotal
+        };
+    };    const handleFileUpload = async () => {
+        console.log('Starting file upload. File:', file);
+        setLoading(true);
+        
+        try {
+            if (!file) {
+                setLoading(false);
+                console.error('No file selected');
+                throw new Error('Por favor seleccione un archivo');
+            }
+
+            setLoading(true);
+            setError(null);
+            setStats({
+                totalLlamadas: 0,
+                entrantes: 0,
+                salientes: 0,
+                duracionTotal: 0,
+                duracionPromedio: 0,
+                beneficiarios: new Set()
+            });
+
+            console.log('Reading file...');
+            const data = await file.arrayBuffer();
+            console.log('File read successfully, parsing workbook...');
+            const workbook = read(data);
+            
+            if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+                throw new Error('El archivo Excel no contiene hojas de cálculo');
+            }
+
+            // Obtener la primera hoja
+            const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+            if (!worksheet) {
+                throw new Error('No se pudo leer la hoja de cálculo');
+            }
+
+            const rows = utils.sheet_to_json(worksheet, {
+                header: 1,
+                blankrows: false,
+                rawNumbers: false
+            });
+
+            if (rows.length < 2) {
+                throw new Error('El archivo no contiene datos suficientes');
+            }
+
+            const headerRow = rows[0];
+            let columnMap;
+            
+            try {
+                columnMap = identifyColumns(headerRow);
+                console.log('Mapeo de columnas:', columnMap);
+            } catch (error) {
+                console.error('Error identificando columnas:', error);
+                throw new Error(`Error en el encabezado: ${error.message}`);
+            }
+
+            setProgress({ 
+                current: 0,
+                total: rows.length - 1,
+                status: 'Procesando registros...' 
+            });
+
+            const processedData = [];
+            const errors = [];
+            const BATCH_SIZE = 50;
+
+            // Procesar filas en lotes
+            for (let i = 1; i < rows.length; i += BATCH_SIZE) {
+                const batchEnd = Math.min(i + BATCH_SIZE, rows.length);
+                
+                for (let j = i; j < batchEnd; j++) {
+                    const row = rows[j];
+                    
+                    setProgress(prev => ({
+                        ...prev,
+                        current: j,
+                        status: `Procesando registro ${j} de ${rows.length - 1}...`
+                    }));
+
+                    const validation = validateRow(row, columnMap);
+                    if (!validation.isValid) {
+                        if (validation.errors[0] !== 'Fila vacía') {
+                            errors.push(`Fila ${j + 1}: ${validation.errors.join(', ')}`);
+                        }
+                        continue;
+                    }
+
+                    try {
+                        const processedRow = processRow(row, columnMap);
+                        processedData.push(processedRow);
+                        
+                        setStats(prevStats => {
+                            const newStats = { ...prevStats };
+                            newStats.totalLlamadas++;
+                            
+                            if (processedRow.evento.toLowerCase().includes('entrante')) {
+                                newStats.entrantes++;
+                            } else {
+                                newStats.salientes++;
+                            }
+                            
+                            newStats.duracionTotal += processedRow.segundos;
+                            newStats.duracionPromedio = Math.round(newStats.duracionTotal / newStats.totalLlamadas);
+                            newStats.beneficiarios.add(processedRow.beneficiario);
+                            
+                            return newStats;
+                        });
+
+                    } catch (err) {
+                        console.error(`Error en fila ${j + 1}:`, err);
+                        errors.push(`Fila ${j + 1}: ${err.message}`);
+                    }
+                }
+
+                await new Promise(resolve => setTimeout(resolve, 0));
+            }
+
+            // Actualizar datos globales
+            updateCallData(processedData, { assignments });
+
+            if (errors.length > 0) {
+                const errorSummary = errors.length === 1 
+                    ? 'Se encontró 1 error:'
+                    : `Se encontraron ${errors.length} errores:`;
+                
+                const errorDetails = errors.slice(0, 5).join('\n');
+                const moreErrors = errors.length > 5 ? '\n...y más errores' : '';
+                
+                setError(`${errorSummary}\n${errorDetails}${moreErrors}`);
+            }
+
+            if (processedData.length === 0) {
+                throw new Error('No se pudo procesar ningún registro válido del archivo');
+            }
+
+            setToast({
+                message: `Archivo procesado. ${processedData.length} registros válidos${errors.length > 0 ? ` (${errors.length} errores)` : ''}.`,
+                type: errors.length > 0 ? 'warning' : 'success'
+            });
+
+        } catch (err) {
+            console.error('Error procesando archivo:', err);
+            setError(err.message);
+            setToast({ 
+                message: `Error: ${err.message}`, 
+                type: 'error' 
+            });
+        } finally {
+            setLoading(false);
+            setProgress(prev => ({
+                ...prev,
+                status: 'Finalizado'
+            }));
+        }
+    };
+
+    // Reset stats when starting new file
+    useEffect(() => {
+        if (file) {
+            setStats({
+                totalLlamadas: 0,
+                entrantes: 0,
+                salientes: 0,
+                duracionTotal: 0,
+                duracionPromedio: 0,
+                beneficiarios: new Set()
+            });
+        }
+    }, [file]);
+
+    return (
+        <div className="p-6 space-y-6">
+            <div className="flex justify-between items-center mb-6">
+                <h2 className="text-2xl font-bold">Cargar Registros de Llamadas</h2>
+            </div>
+            
+            {/* Estadísticas */}
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+                <StatCard
+                    title="Total Llamadas"
+                    value={stats.totalLlamadas}
+                />
+                <StatCard
+                    title="Entrantes"
+                    value={stats.entrantes}
+                    subtitle={`${stats.totalLlamadas ? Math.round((stats.entrantes / stats.totalLlamadas) * 100) : 0}% del total`}
+                    color="blue"
+                />
+                <StatCard
+                    title="Salientes"
+                    value={stats.salientes}
+                    subtitle={`${stats.totalLlamadas ? Math.round((stats.salientes / stats.totalLlamadas) * 100) : 0}% del total`}
+                    color="purple"
+                />
+                <StatCard
+                    title="Duración Total"
+                    value={`${Math.floor(stats.duracionTotal / 60)} min`}
+                />
+                <StatCard
+                    title="Duración Promedio"
+                    value={`${Math.round(stats.duracionPromedio)} seg`}
+                />
+                <StatCard
+                    title="Beneficiarios"
+                    value={stats.beneficiarios.size}
+                    color="green"
+                />
+            </div>
+
+            {/* Instrucciones */}
+            <div className="bg-white p-6 rounded-lg shadow-md mb-6">
+                <h3 className="font-semibold mb-4">Instrucciones de Carga</h3>
+                <p className="mb-3">Sube un archivo Excel con los registros de llamadas:</p>
+                <ul className="list-disc ml-5 space-y-2 text-gray-600">
+                    <li>Columna A: ID del llamado</li>
+                    <li>Columna B: Fecha del llamado (DD-MM-YYYY)</li>
+                    <li>Columna C: Nombre del Beneficiario</li>
+                    <li>Columna D: Comuna del Beneficiario</li>
+                    <li>Columna E: Tipo (entrante/saliente)</li>
+                    <li>Columna F: Teléfono del beneficiario</li>
+                    <li>Columna G: Hora inicio (HH:MM)</li>
+                    <li>Columna H: Hora fin (HH:MM)</li>
+                    <li>Columna I: Segundos hablados</li>
+                </ul>
+            </div>
+
+            {/* Área de carga y análisis */}
+            <div className="bg-white p-6 rounded-lg shadow-md">
+                <div className="flex flex-col space-y-4">
+                    {/* Selector de archivo */}
+                    <div className="flex items-center space-x-4">
+                        <input
+                            type="file"
+                            accept=".xlsx,.xls"
+                            onChange={handleFileChange}
+                            className="hidden"
+                            id="fileInput"
+                            disabled={loading}
+                        />
+                        <label
+                            htmlFor="fileInput"
+                            className={`cursor-pointer bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 flex items-center ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                            <ArrowUpOnSquareIcon className="h-5 w-5 mr-2" />
+                            Elegir archivo
+                        </label>
+                        {file && (
+                            <div className="flex items-center space-x-4 flex-1">
+                                <span className="text-gray-600 flex-1">
+                                    archivo - {file.name}
+                                </span>
+                                <button
+                                    onClick={handleFileUpload}                                    disabled={loading || !file}
+                                    className={`bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 flex items-center ${(loading || !file) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                >
+                                    <ChartBarIcon className="h-5 w-5 mr-2" />
+                                    Comenzar Análisis
+                                </button>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Barra de progreso y estado */}
+                    {loading && (
+                        <div className="space-y-2">
+                            <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
+                                <div 
+                                    className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
+                                    style={{ 
+                                        width: progress.total ? `${(progress.current / progress.total) * 100}%` : '100%',
+                                        transition: 'width 0.3s ease-in-out'
+                                    }}
+                                ></div>
+                            </div>
+                            <div className="text-sm text-gray-600 flex items-center">
+                                <ArrowPathIcon className="h-4 w-4 mr-2 animate-spin" />
+                                {progress.status}
+                                {progress.total > 0 && ` (${progress.current} de ${progress.total})`}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Mensaje de error */}
+                    {error && (
+                        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative">
+                            <strong className="font-bold">Error: </strong>
+                            <span className="block sm:inline whitespace-pre-line">{error}</span>
+                        </div>
+                    )}
+                </div>            </div>
+            
+            {/* Toast y Loading Overlay */}
+            <Toast message={toast.message} type={toast.type} onDismiss={() => setToast({ message: '', type: '' })} />
+            {loading && <LoadingOverlay progress={progress} />}
+        </div>
+    );
+};
+
+export default CallDataAnalyzer;

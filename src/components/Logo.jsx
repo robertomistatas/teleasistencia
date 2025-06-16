@@ -20,7 +20,7 @@ const Logo = () => {
           />
         </svg>
       </div>
-      <span className="text-xl font-bold text-white">Mistatas Test Deploy</span>
+      <span className="text-xl font-semibold">Teleasistencia</span>
     </div>
   );
 };

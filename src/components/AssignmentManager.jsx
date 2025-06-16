@@ -1,17 +1,15 @@
-import React, { useState, useEffect } from 'react';
-import { collection, getDocs, doc, setDoc, deleteDoc } from 'firebase/firestore';
+import React, { useState, useEffect, useContext, useCallback, useRef, memo } from 'react';
+import { collection, doc, setDoc, deleteDoc, onSnapshot, query, where, getDocs, writeBatch } from 'firebase/firestore';
 import { read, utils } from 'xlsx';
 import { ArrowUpOnSquareIcon, ArrowPathIcon, TrashIcon, ChevronDownIcon } from '@heroicons/react/24/outline';
 import { db } from '../App';
+import { DataContext } from '../App';
 
-const Toast = ({ message, type, onDismiss }) => {
-    const bgColor = type === 'success' ? 'bg-green-500' : 'bg-red-500';
-    
+// Componente Toast separado
+const Toast = memo(({ message, type, onDismiss }) => {
     useEffect(() => {
         if (message) {
-            const timer = setTimeout(() => {
-                onDismiss();
-            }, 3000);
+            const timer = setTimeout(onDismiss, 3000);
             return () => clearTimeout(timer);
         }
     }, [message, onDismiss]);
@@ -19,263 +17,389 @@ const Toast = ({ message, type, onDismiss }) => {
     if (!message) return null;
 
     return (
-        <div className={`fixed bottom-5 right-5 text-white px-6 py-3 rounded-lg shadow-lg ${bgColor}`}>
+        <div className={`fixed bottom-5 right-5 text-white px-6 py-3 rounded-lg shadow-lg ${
+            type === 'success' ? 'bg-green-500' : 'bg-red-500'
+        }`}>
             {message}
         </div>
     );
-};
+});
 
+// Componente LoadingOverlay separado
+const LoadingOverlay = ({ progress, stats }) => (
+    <div className="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <div className="flex flex-col items-center">
+                <ArrowPathIcon className="w-12 h-12 animate-spin text-blue-500 mb-4" />
+                <h3 className="text-lg font-semibold mb-2">Procesando archivo...</h3>
+                <div className="w-full bg-gray-200 rounded-full h-2.5 mb-2">
+                    <div 
+                        className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
+                        style={{ width: `${(progress.processed / progress.total) * 100}%` }}
+                    />
+                </div>
+                <p className="text-sm text-gray-600 mb-2">
+                    Procesando {progress.processed} de {progress.total} registros
+                </p>
+                {stats && (
+                    <div className="text-sm space-y-1 text-gray-600 text-center border-t border-gray-200 pt-3 mt-2 w-full">
+                        <p>✅ {stats.beneficiariosCreados} nuevos beneficiarios</p>
+                        <p>🔄 {stats.duplicadosEncontrados} beneficiarios existentes</p>
+                        <p>📋 {stats.asignacionesCreadas} asignaciones creadas</p>
+                        {stats.errores > 0 && (
+                            <p className="text-red-500">❌ {stats.errores} errores encontrados</p>
+                        )}
+                    </div>
+                )}
+            </div>
+        </div>
+    </div>
+);
+
+// Componente para la tarjeta de asignación
+const AsignacionCard = memo(({ asignacion, beneficiario, onDelete }) => {
+    if (!beneficiario) return null;
+
+    return (
+        <div className="flex items-center justify-between py-3 px-4 bg-white border border-gray-100 rounded-lg hover:border-gray-200 transition-colors">
+            <div className="flex flex-col">
+                <span className="text-sm font-medium text-gray-900">
+                    {beneficiario.nombre}
+                </span>
+                {beneficiario.telefono && (
+                    <span className="text-xs text-gray-500 mt-1">
+                        📞 {beneficiario.telefono}
+                    </span>
+                )}
+            </div>
+            <button
+                onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete(asignacion.id, beneficiario.nombre);
+                }}
+                className="text-red-600 hover:text-red-800 p-2 hover:bg-red-50 rounded-full transition-colors"
+                title="Eliminar asignación"
+            >
+                <TrashIcon className="h-5 w-5" />
+            </button>
+        </div>
+    );
+});
+
+// Componente principal
 const AssignmentManager = () => {
-    const [loading, setLoading] = useState(false);
-    const [file, setFile] = useState(null);
-    const [toast, setToast] = useState({ message: '', type: '' });
-    const [assignments, setAssignments] = useState([]);
+    // Contexto
+    const { updateAssignments } = useContext(DataContext);
+
+    // Estados
+    const [loading, setLoading] = useState(true);
     const [operadoras, setOperadoras] = useState([]);
     const [beneficiarios, setBeneficiarios] = useState([]);
+    const [assignments, setAssignments] = useState([]);
     const [selectedOperadora, setSelectedOperadora] = useState('');
     const [selectedBeneficiario, setSelectedBeneficiario] = useState('');
     const [expandedOperadora, setExpandedOperadora] = useState(null);
-    const [assignmentStats, setAssignmentStats] = useState([]);
+    const [file, setFile] = useState(null);
+    const [toast, setToast] = useState({ message: '', type: '' });    // Estados adicionales para el manejo de carga
+    const [isUploading, setIsUploading] = useState(false);
+    const [uploadProgress, setUploadProgress] = useState({ total: 0, processed: 0 });
+    const [uploadStats, setUploadStats] = useState({
+        beneficiariosCreados: 0,
+        duplicadosEncontrados: 0,
+        asignacionesCreadas: 0,
+        errores: 0
+    });
 
-    useEffect(() => {
-        const fetchData = async () => {
-            try {
-                // Fetch teleoperators
-                const operadorasSnap = await getDocs(collection(db, 'users'));
-                setOperadoras(operadorasSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    // Referencias
+    const loadingStatus = useRef({
+        operadoras: false,
+        beneficiarios: false,
+        asignaciones: false
+    });
 
-                // Fetch beneficiaries
-                const beneficiariosSnap = await getDocs(collection(db, 'beneficiarios'));
-                setBeneficiarios(beneficiariosSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-
-                // Fetch existing assignments
-                const assignmentsSnap = await getDocs(collection(db, 'assignments'));
-                setAssignments(assignmentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-            } catch (error) {
-                console.error("Error fetching data:", error);
-                setToast({ message: `Error al cargar datos: ${error.message}`, type: 'error' });
-            }
-        };
-        fetchData();
+    // Callbacks
+    const checkDataLoaded = useCallback(() => {
+        const status = loadingStatus.current;
+        if (status.operadoras && status.beneficiarios && status.asignaciones) {
+            setLoading(false);
+        }
     }, []);
 
-    const handleFileChange = (e) => {
-        setFile(e.target.files[0]);
-    };    const refreshData = async () => {
-        try {
-            // Refresh assignments
-            const assignmentsSnap = await getDocs(collection(db, 'assignments'));
-            const newAssignments = assignmentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setAssignments(newAssignments);
-            
-            // Force stats recalculation
-            const stats = operadoras.map(op => {
-                const operadoraAssignments = newAssignments.filter(a => a.operadoraId === op.id);
-                return {
-                    ...op,
-                    beneficiariosCount: operadoraAssignments.length,
-                    beneficiarios: operadoraAssignments.map(a => ({
-                        id: a.beneficiarioId,
-                        nombre: a.beneficiarioNombre,
-                        assignmentId: a.id
-                    }))
-                };
-            });
-            setAssignmentStats(stats);
-        } catch (error) {
-            console.error("Error refreshing data:", error);
-            setToast({ message: `Error al actualizar datos: ${error.message}`, type: 'error' });
-        }
-    };
-
-    const handleFileUpload = async () => {
-        if (!file || !selectedOperadora) {
-            setToast({ message: 'Por favor, selecciona una operadora y un archivo', type: 'error' });
-            return;
-        }
-
-        setLoading(true);
-        const reader = new FileReader();
-        
-        reader.onload = async (e) => {
-            try {
-                const data = new Uint8Array(e.target.result);
-                const workbook = read(data, { type: 'array' });
-                const sheetName = workbook.SheetNames[0];
-                const worksheet = workbook.Sheets[sheetName];                const json = utils.sheet_to_json(worksheet, { header: 'A' });
-
-                const operadora = operadoras.find(op => op.id === selectedOperadora);
-                console.log('Processing Excel for operadora:', operadora.nombre);
-                
-                // Process each row
-                for (const row of json.slice(1)) { // Skip header row
-                    const beneficiarioName = row['A']; // Column A = beneficiary name
-                    const telefonos = row['B'] ? String(row['B']).split(',').map(tel => tel.trim()) : []; // Column B = phone numbers
-
-                    if (!beneficiarioName) continue;
-
-                    // Check if beneficiary already exists
-                    let beneficiario = beneficiarios.find(b => b.nombre.toLowerCase() === beneficiarioName.toLowerCase());
-                    
-                    // Check if there's an existing assignment for this beneficiary
-                    const existingAssignment = assignments.find(a => 
-                        a.beneficiarioNombre.toLowerCase() === beneficiarioName.toLowerCase()
-                    );
-
-                    if (existingAssignment) {
-                        // Skip if already assigned to this operadora
-                        if (existingAssignment.operadoraId === selectedOperadora) {
-                            continue;
-                        }
-                        // Update existing assignment
-                        await setDoc(doc(db, 'assignments', existingAssignment.id), {
-                            beneficiarioId: existingAssignment.beneficiarioId,
-                            beneficiarioNombre: beneficiarioName,
-                            operadoraId: operadora.id,
-                            operadoraNombre: operadora.nombre,
-                            updatedAt: new Date()
-                        });
-                    } else {
-                        // Create new beneficiary if not exists
-                        if (!beneficiario) {
-                            const beneficiarioRef = doc(collection(db, 'beneficiarios'));
-                            const newBeneficiario = {
-                                nombre: beneficiarioName,
-                                telefonos: telefonos
-                            };
-                            await setDoc(beneficiarioRef, newBeneficiario);
-                            beneficiario = { id: beneficiarioRef.id, ...newBeneficiario };
-                        }
-
-                        // Create new assignment
-                        const assignmentRef = doc(collection(db, 'assignments'));
-                        await setDoc(assignmentRef, {
-                            beneficiarioId: beneficiario.id,
-                            beneficiarioNombre: beneficiario.nombre,
-                            operadoraId: operadora.id,
-                            operadoraNombre: operadora.nombre,
-                            createdAt: new Date()
-                        });
-                    }
-                }                // Refresh all data
-                await refreshData();
-
-                setToast({ 
-                    message: `Asignaciones procesadas con éxito para ${operadora.nombre}`, 
-                    type: 'success' 
-                });
-
-                // Reset selections
-                setSelectedOperadora('');
-                setFile(null);
-                if (document.getElementById('file-upload')) {
-                    document.getElementById('file-upload').value = null;
-                }
-            } catch (error) {
-                console.error("Error processing file:", error);
-                setToast({ message: `Error al procesar archivo: ${error.message}`, type: 'error' });
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        reader.readAsArrayBuffer(file);
-    };
-
-    const handleManualAssignment = async () => {
-        if (!selectedOperadora || !selectedBeneficiario) {
-            setToast({ message: 'Por favor, selecciona una operadora y un beneficiario', type: 'error' });
-            return;
-        }
+    const handleCreateAssignment = useCallback(async () => {
+        if (!selectedOperadora || !selectedBeneficiario) return;
 
         try {
             const operadora = operadoras.find(op => op.id === selectedOperadora);
             const beneficiario = beneficiarios.find(b => b.id === selectedBeneficiario);
 
-            const assignmentRef = doc(collection(db, 'assignments'));
-            await setDoc(assignmentRef, {
-                beneficiarioId: beneficiario.id,
-                beneficiarioNombre: beneficiario.nombre,
-                operadoraId: operadora.id,
-                operadoraNombre: operadora.nombre,
-                createdAt: new Date()
-            });
+            if (!operadora || !beneficiario) {
+                setToast({ message: 'Error: Operadora o beneficiario no encontrado', type: 'error' });
+                return;
+            }
 
-            setToast({ message: 'Asignación creada con éxito', type: 'success' });
-            
-            // Refresh assignments
-            const assignmentsSnap = await getDocs(collection(db, 'assignments'));
-            setAssignments(assignmentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            const newAssignment = {
+                operadoraId: selectedOperadora,
+                beneficiarioId: selectedBeneficiario,
+                createdAt: new Date().toISOString()
+            };
 
-            // Reset selections
+            const assignmentRef = doc(collection(db, 'asignaciones'));
+            await setDoc(assignmentRef, newAssignment);
+
             setSelectedOperadora('');
             setSelectedBeneficiario('');
+            setToast({ message: 'Asignación creada con éxito', type: 'success' });
         } catch (error) {
-            console.error("Error creating assignment:", error);
-            setToast({ message: `Error al crear asignación: ${error.message}`, type: 'error' });
+            console.error('Error creating assignment:', error);
+            setToast({ message: 'Error al crear la asignación', type: 'error' });
         }
-    };
+    }, [selectedOperadora, selectedBeneficiario, operadoras, beneficiarios]);
 
-    const handleDeleteAssignment = async (assignmentId) => {
-        if (window.confirm('¿Estás seguro de que quieres eliminar esta asignación?')) {
-            try {
-                await deleteDoc(doc(db, 'assignments', assignmentId));
-                setAssignments(assignments.filter(a => a.id !== assignmentId));
-                setToast({ message: 'Asignación eliminada con éxito', type: 'success' });
-            } catch (error) {
-                console.error("Error deleting assignment:", error);
-                setToast({ message: `Error al eliminar asignación: ${error.message}`, type: 'error' });
-            }
+    const handleDeleteAssignment = useCallback(async (assignmentId, beneficiarioNombre) => {
+        try {
+            await deleteDoc(doc(db, 'asignaciones', assignmentId));
+            setToast({ 
+                message: `Asignación de ${beneficiarioNombre} eliminada con éxito`, 
+                type: 'success' 
+            });
+        } catch (error) {
+            console.error('Error deleting assignment:', error);
+            setToast({ message: 'Error al eliminar la asignación', type: 'error' });
         }
-    };
+    }, []);    const validateBeneficiario = async (nombre, telefono) => {
+        // Buscar beneficiarios existentes con el mismo nombre o teléfono
+        const beneficiariosRef = collection(db, 'beneficiarios');
+        const nombreQuery = query(beneficiariosRef, where('nombre', '==', nombre.trim()));
+        const telefonoQuery = telefono ? 
+            query(beneficiariosRef, where('telefono', '==', telefono.trim())) : 
+            null;
 
-    const calculateAssignmentStats = () => {
-        const stats = operadoras.map(op => {
-            const operadoraAssignments = assignments.filter(a => a.operadoraId === op.id);
+        const [nombreSnapshot, telefonoSnapshot] = await Promise.all([
+            getDocs(nombreQuery),
+            telefonoQuery ? getDocs(telefonoQuery) : Promise.resolve({ empty: true })
+        ]);
+
+        if (!nombreSnapshot.empty) {
+            const existente = nombreSnapshot.docs[0];
             return {
-                ...op,
-                beneficiariosCount: operadoraAssignments.length,
-                beneficiarios: operadoraAssignments.map(a => ({
-                    id: a.beneficiarioId,
-                    nombre: a.beneficiarioNombre,
-                    assignmentId: a.id
-                }))
+                existe: true,
+                id: existente.id,
+                data: existente.data()
             };
-        });
-        setAssignmentStats(stats);
-    };    // Initial data load
+        }
+
+        if (telefonoQuery && !telefonoSnapshot.empty) {
+            const existente = telefonoSnapshot.docs[0];
+            return {
+                existe: true,
+                id: existente.id,
+                data: existente.data()
+            };
+        }
+
+        return { existe: false };
+    };
+
+    const handleFileUpload = useCallback(async () => {
+        if (!file || !selectedOperadora) return;
+        
+        try {
+            setIsUploading(true);
+            const data = await file.arrayBuffer();
+            const workbook = read(data);
+            const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+            const rows = utils.sheet_to_json(worksheet, { header: ['nombre', 'telefono'] });
+            
+            // Skip header row
+            const dataRows = rows.slice(1);
+            setUploadProgress({ total: dataRows.length, processed: 0 });
+
+            // Primero, verificar si hay asignaciones existentes para esta operadora
+            const asignacionesRef = collection(db, 'asignaciones');
+            const asignacionesQuery = query(asignacionesRef, where('operadoraId', '==', selectedOperadora));
+            const asignacionesSnapshot = await getDocs(asignacionesQuery);
+            
+            // Eliminar asignaciones existentes si las hay
+            const batch = writeBatch(db);
+            asignacionesSnapshot.docs.forEach(doc => {
+                batch.delete(doc.ref);
+            });
+            await batch.commit();
+              // Reiniciar estadísticas
+            setUploadStats({
+                beneficiariosCreados: 0,
+                duplicadosEncontrados: 0,
+                asignacionesCreadas: 0,
+                errores: 0
+            });
+            
+            for (const [index, row] of dataRows.entries()) {
+                if (!row.nombre) continue;
+                
+                try {
+                    setUploadProgress(prev => ({ ...prev, processed: index + 1 }));
+
+                    // Validar si el beneficiario ya existe
+                    const telefonos = row.telefono ? 
+                        row.telefono.toString().split(',').map(t => t.trim()).filter(t => t) : 
+                        [];
+                    
+                    const beneficiarioExistente = await validateBeneficiario(row.nombre, telefonos[0]);
+                    let beneficiarioId;                    if (beneficiarioExistente.existe) {
+                        setUploadStats(prev => ({
+                            ...prev,
+                            duplicadosEncontrados: prev.duplicadosEncontrados + 1
+                        }));
+                        beneficiarioId = beneficiarioExistente.id;
+                    } else {
+                        // Crear nuevo beneficiario
+                        const beneficiarioRef = doc(collection(db, 'beneficiarios'));
+                        await setDoc(beneficiarioRef, {
+                            nombre: row.nombre.trim(),
+                            telefono: telefonos[0] || '',
+                            telefonos: telefonos,
+                            createdAt: new Date().toISOString()
+                        });
+                        setUploadStats(prev => ({
+                            ...prev,
+                            beneficiariosCreados: prev.beneficiariosCreados + 1
+                        }));
+                        beneficiarioId = beneficiarioRef.id;
+                    }
+
+                    // Crear asignación
+                    const asignacionRef = doc(collection(db, 'asignaciones'));
+                    await setDoc(asignacionRef, {
+                        operadoraId: selectedOperadora,
+                        beneficiarioId: beneficiarioId,
+                        createdAt: new Date().toISOString()
+                    });
+                    setUploadStats(prev => ({
+                        ...prev,
+                        asignacionesCreadas: prev.asignacionesCreadas + 1
+                    }));
+
+                } catch (error) {
+                    console.error(`Error procesando fila ${row.nombre}:`, error);
+                    setUploadStats(prev => ({
+                        ...prev,
+                        errores: prev.errores + 1
+                    }));
+                }
+            }
+            
+            setFile(null);
+            setSelectedOperadora('');            const stats = uploadStats;
+            let message = `Proceso completado: ${stats.beneficiariosCreados} beneficiarios nuevos, ${stats.duplicadosEncontrados} existentes, ${stats.asignacionesCreadas} asignaciones creadas`;
+            if (stats.errores > 0) {
+                message += `, ${stats.errores} errores encontrados`;
+            }
+            
+            setToast({ message, type: stats.errores > 0 ? 'error' : 'success' });
+        } catch (error) {
+            console.error('Error procesando archivo:', error);
+            setToast({ message: 'Error procesando archivo', type: 'error' });
+        } finally {
+            setIsUploading(false);
+            setUploadProgress({ total: 0, processed: 0 });
+            setUploadStats({
+                beneficiariosCreados: 0,
+                duplicadosEncontrados: 0,
+                asignacionesCreadas: 0,
+                errores: 0
+            });
+        }
+    }, [file, selectedOperadora]);
+
+    // Efectos
     useEffect(() => {
-        const fetchData = async () => {
+        let isMounted = true;
+        const unsubscribes = [];
+
+        const setupSubscriptions = async () => {
             try {
-                const operadorasSnap = await getDocs(collection(db, 'users'));
-                setOperadoras(operadorasSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-                
-                const beneficiariosSnap = await getDocs(collection(db, 'beneficiarios'));
-                setBeneficiarios(beneficiariosSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-                
-                const assignmentsSnap = await getDocs(collection(db, 'assignments'));
-                setAssignments(assignmentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                // Suscripción a operadoras
+                const operadorasQuery = query(collection(db, 'users'));
+                const unsubOperadoras = onSnapshot(operadorasQuery, (snapshot) => {
+                    if (!isMounted) return;
+                    
+                    const operadorasData = snapshot.docs
+                        .map(doc => ({
+                            id: doc.id,
+                            ...doc.data()
+                        }))
+                        .filter(user => user.rol === 'teleoperadora');
+
+                    setOperadoras(operadorasData);
+                    loadingStatus.current.operadoras = true;
+                    checkDataLoaded();
+                });
+                unsubscribes.push(unsubOperadoras);
+
+                // Suscripción a beneficiarios
+                const beneficiariosQuery = query(collection(db, 'beneficiarios'));
+                const unsubBeneficiarios = onSnapshot(beneficiariosQuery, (snapshot) => {
+                    if (!isMounted) return;
+                    
+                    const beneficiariosData = snapshot.docs.map(doc => ({
+                        id: doc.id,
+                        ...doc.data()
+                    }));
+                    setBeneficiarios(beneficiariosData);
+                    loadingStatus.current.beneficiarios = true;
+                    checkDataLoaded();
+                });
+                unsubscribes.push(unsubBeneficiarios);
+
+                // Suscripción a asignaciones
+                const asignacionesQuery = query(collection(db, 'asignaciones'));
+                const unsubAsignaciones = onSnapshot(asignacionesQuery, (snapshot) => {
+                    if (!isMounted) return;
+                    
+                    const assignmentsData = snapshot.docs.map(doc => ({
+                        id: doc.id,
+                        ...doc.data()
+                    }));
+                    setAssignments(assignmentsData);
+                    loadingStatus.current.asignaciones = true;
+                    checkDataLoaded();
+                });
+                unsubscribes.push(unsubAsignaciones);
+
             } catch (error) {
-                console.error("Error fetching data:", error);
-                setToast({ message: `Error al cargar datos: ${error.message}`, type: 'error' });
+                console.error('Error setting up subscriptions:', error);
+                if (isMounted) {
+                    setToast({ message: 'Error cargando datos', type: 'error' });
+                    setLoading(false);
+                }
             }
         };
-        fetchData();
-    }, []);
 
-    // Update stats whenever assignments or operadoras change
-    useEffect(() => {
-        if (operadoras.length > 0 && assignments.length >= 0) {
-            calculateAssignmentStats();
-        }
-    }, [assignments, operadoras]);
+        setupSubscriptions();
+
+        return () => {
+            isMounted = false;
+            unsubscribes.forEach(unsub => unsub());
+        };
+    }, [checkDataLoaded]);
+
+    // Loading state
+    if (loading) {
+        return (
+            <div className="flex flex-col items-center justify-center p-8">
+                <div className="flex items-center mb-4">
+                    <ArrowPathIcon className="w-8 h-8 animate-spin text-blue-500" />
+                    <span className="ml-2">Cargando datos...</span>
+                </div>
+            </div>
+        );
+    }
 
     return (
-        <div className="p-6 bg-gray-50 min-h-full">
-            <Toast message={toast.message} type={toast.type} onDismiss={() => setToast({ message: '', type: '' })} />
-              <div className="mb-8">
-                <h2 className="text-xl font-bold mb-4">Carga de Beneficiarios por Teleoperadora</h2>
-                <div className="bg-white p-6 rounded-lg shadow">
+        <div className="space-y-6">            {/* File upload section */}
+            <div className="bg-white rounded-xl shadow-md p-6">
+                <h3 className="text-lg font-semibold mb-4">Carga Masiva de Asignaciones</h3>
+                <div className="border-2 border-dashed border-gray-300 rounded-lg p-6">
                     <div className="mb-6">
                         <label className="block text-sm font-medium text-gray-700 mb-2">
                             Seleccionar Teleoperadora
@@ -283,151 +407,153 @@ const AssignmentManager = () => {
                         <select
                             value={selectedOperadora}
                             onChange={(e) => setSelectedOperadora(e.target.value)}
-                            className="w-full p-2 border rounded-md mb-4"
+                            className="w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
+                        >
+                            <option value="">Seleccionar operadora para asignación masiva</option>
+                            {operadoras.map(op => (
+                                <option key={op.id} value={op.id}>{op.nombre}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div className="bg-gray-50 rounded-lg p-4 mb-4">
+                        <h4 className="text-sm font-medium text-gray-700 mb-2">Formato del Excel:</h4>
+                        <div className="space-y-2">
+                            <p className="text-xs text-gray-600">
+                                • Columna A: Nombre del beneficiario
+                            </p>
+                            <p className="text-xs text-gray-600">
+                                • Columna B: Teléfonos (separados por comas)
+                            </p>
+                            <p className="text-xs text-gray-500 italic">
+                                Nota: Los beneficiarios serán asignados a la teleoperadora seleccionada
+                            </p>
+                        </div>
+                    </div>
+
+                    <input
+                        type="file"
+                        onChange={(e) => setFile(e.target.files[0])}
+                        accept=".xlsx,.xls"
+                        className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                    />
+                    <button
+                        onClick={handleFileUpload}
+                        disabled={!file || !selectedOperadora}
+                        className="mt-4 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                    >
+                        <ArrowUpOnSquareIcon className="h-5 w-5 mr-2" />
+                        Subir y Procesar Asignaciones
+                    </button>
+                </div>
+            </div>
+
+            {/* Manual assignment section */}
+            <div className="bg-white rounded-xl shadow-md p-6">
+                <h3 className="text-lg font-semibold mb-4">Asignación Manual</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Operadora</label>
+                        <select
+                            value={selectedOperadora}
+                            onChange={(e) => setSelectedOperadora(e.target.value)}
+                            className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
                         >
                             <option value="">Seleccionar operadora</option>
                             {operadoras.map(op => (
                                 <option key={op.id} value={op.id}>{op.nombre}</option>
                             ))}
                         </select>
-
-                        <p className="text-gray-600 mb-4">
-                            Sube un archivo Excel con los beneficiarios:
-                            <br />
-                            Columna A: Nombre del beneficiario
-                            <br />
-                            Columna B: Teléfonos (separados por comas)
-                        </p>
                     </div>
-
-                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                        <input
-                            type="file"
-                            id="file-upload"
-                            accept=".xlsx,.xls"
-                            onChange={handleFileChange}
-                            className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-                        />
-                    </div>
-                    <button
-                        onClick={handleFileUpload}
-                        disabled={loading || !file || !selectedOperadora}
-                        className="mt-4 w-full bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-blue-600 disabled:bg-gray-400"
-                    >
-                        {loading ? <ArrowPathIcon className="h-5 w-5 animate-spin"/> : <ArrowUpOnSquareIcon className="h-5 w-5"/>}
-                        {loading ? 'Procesando...' : 'Subir y Procesar'}
-                    </button>
-                </div>
-            </div>
-
-            <div className="mb-8">
-                <h2 className="text-xl font-bold mb-4">Asignación Manual</h2>
-                <div className="bg-white p-6 rounded-lg shadow">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Operadora
-                            </label>
-                            <select
-                                value={selectedOperadora}
-                                onChange={(e) => setSelectedOperadora(e.target.value)}
-                                className="w-full p-2 border rounded-md"
-                            >
-                                <option value="">Seleccionar operadora</option>
-                                {operadoras.map(op => (
-                                    <option key={op.id} value={op.id}>{op.nombre}</option>
-                                ))}
-                            </select>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Beneficiario
-                            </label>
-                            <select
-                                value={selectedBeneficiario}
-                                onChange={(e) => setSelectedBeneficiario(e.target.value)}
-                                className="w-full p-2 border rounded-md"
-                            >
-                                <option value="">Seleccionar beneficiario</option>
-                                {beneficiarios.map(ben => (
-                                    <option key={ben.id} value={ben.id}>{ben.nombre}</option>
-                                ))}
-                            </select>
-                        </div>
-                    </div>
-                    <button
-                        onClick={handleManualAssignment}
-                        className="w-full bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600"
-                    >
-                        Crear Asignación
-                    </button>
-                </div>
-            </div>            <div>
-                <h2 className="text-xl font-bold mb-4">Asignaciones Actuales</h2>
-                <div className="bg-white rounded-lg shadow overflow-hidden">
-                    <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-50">
-                            <tr>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    Operadora
-                                </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    Beneficiarios Asignados
-                                </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    Acciones
-                                </th>
-                            </tr>
-                        </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
-                            {assignmentStats.map(stat => (
-                                <React.Fragment key={stat.id}>
-                                    <tr className={`${expandedOperadora === stat.id ? 'bg-blue-50' : ''} hover:bg-gray-50 cursor-pointer`}>
-                                        <td 
-                                            className="px-6 py-4 whitespace-nowrap font-medium"
-                                            onClick={() => setExpandedOperadora(expandedOperadora === stat.id ? null : stat.id)}
-                                        >
-                                            <div className="flex items-center">
-                                                <ChevronDownIcon 
-                                                    className={`h-5 w-5 mr-2 transform transition-transform ${
-                                                        expandedOperadora === stat.id ? 'rotate-180' : ''
-                                                    }`}
-                                                />
-                                                {stat.nombre}
-                                            </div>
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap">
-                                            {stat.beneficiariosCount} beneficiarios
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap">
-                                            {/* Add any operadora-level actions here */}
-                                        </td>
-                                    </tr>
-                                    {expandedOperadora === stat.id && stat.beneficiarios.map(beneficiario => (
-                                        <tr key={beneficiario.id} className="bg-gray-50">
-                                            <td className="px-6 py-2 pl-12 whitespace-nowrap text-sm">
-                                                {beneficiario.nombre}
-                                            </td>
-                                            <td className="px-6 py-2 whitespace-nowrap text-sm">
-                                                {/* Add any beneficiary details here */}
-                                            </td>
-                                            <td className="px-6 py-2 whitespace-nowrap text-sm">
-                                                <button
-                                                    onClick={() => handleDeleteAssignment(beneficiario.assignmentId)}
-                                                    className="text-red-600 hover:text-red-900"
-                                                    title="Eliminar asignación"
-                                                >
-                                                    <TrashIcon className="h-4 w-4" />
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </React.Fragment>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Beneficiario</label>
+                        <select
+                            value={selectedBeneficiario}
+                            onChange={(e) => setSelectedBeneficiario(e.target.value)}
+                            className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
+                        >
+                            <option value="">Seleccionar beneficiario</option>
+                            {beneficiarios.map(b => (
+                                <option key={b.id} value={b.id}>{b.nombre}</option>
                             ))}
-                        </tbody>
-                    </table>
+                        </select>
+                    </div>
+                </div>
+                <button
+                    onClick={handleCreateAssignment}
+                    disabled={!selectedOperadora || !selectedBeneficiario}
+                    className="mt-4 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                >
+                    Crear Asignación
+                </button>
+            </div>
+
+            {/* Current assignments section */}
+            <div className="bg-white rounded-xl shadow-md overflow-hidden">
+                <div className="px-6 py-4 border-b border-gray-200">
+                    <h3 className="text-lg font-semibold">Asignaciones Actuales</h3>
+                </div>
+                <div className="divide-y divide-gray-200">
+                    {operadoras.map(op => {
+                        const asignaciones = assignments.filter(a => a.operadoraId === op.id);
+                        
+                        return (
+                            <div key={op.id} className="p-6 border-b border-gray-200 last:border-b-0">
+                                <div 
+                                    className="flex items-center justify-between cursor-pointer hover:bg-gray-50 p-3 rounded-lg transition-colors"
+                                    onClick={() => setExpandedOperadora(expandedOperadora === op.id ? null : op.id)}
+                                >
+                                    <div className="flex items-center space-x-3">
+                                        <h4 className="text-lg font-medium text-gray-900">{op.nombre}</h4>
+                                        <div className={`px-3 py-1 text-sm font-medium rounded-full ${
+                                            asignaciones.length > 0 ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
+                                        }`}>
+                                            {asignaciones.length} beneficiarios
+                                        </div>
+                                    </div>
+                                    <ChevronDownIcon 
+                                        className={`h-5 w-5 text-gray-500 transform transition-transform duration-200 ${
+                                            expandedOperadora === op.id ? 'rotate-180' : ''
+                                        }`} 
+                                    />
+                                </div>
+                                
+                                {expandedOperadora === op.id && (
+                                    <div className="mt-4 space-y-2 pl-4">
+                                        {asignaciones.length === 0 ? (
+                                            <p className="text-sm text-gray-500 italic py-4">
+                                                No hay beneficiarios asignados a esta operadora
+                                            </p>
+                                        ) : (
+                                            <div className="space-y-2">
+                                                {asignaciones.map(asignacion => {
+                                                    const beneficiario = beneficiarios.find(b => b.id === asignacion.beneficiarioId);
+                                                    return (
+                                                        <AsignacionCard
+                                                            key={asignacion.id}
+                                                            asignacion={asignacion}
+                                                            beneficiario={beneficiario}
+                                                            onDelete={handleDeleteAssignment}
+                                                        />
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
                 </div>
             </div>
+
+            <Toast 
+                message={toast.message}
+                type={toast.type}
+                onDismiss={() => setToast({ message: '', type: '' })}
+            />
+
+            {isUploading && <LoadingOverlay progress={uploadProgress} stats={uploadStats} />}
         </div>
     );
 };
