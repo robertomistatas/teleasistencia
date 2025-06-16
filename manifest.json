@@ -1,0 +1,20 @@
+{
+  "_vendor-405c900a.js": {
+    "file": "assets/vendor-405c900a.js"
+  },
+  "index.css": {
+    "file": "assets/index-8a90bdb0.css",
+    "src": "index.css"
+  },
+  "index.html": {
+    "css": [
+      "assets/index-8a90bdb0.css"
+    ],
+    "file": "assets/main-97af9207.js",
+    "imports": [
+      "_vendor-405c900a.js"
+    ],
+    "isEntry": true,
+    "src": "index.html"
+  }
+}
