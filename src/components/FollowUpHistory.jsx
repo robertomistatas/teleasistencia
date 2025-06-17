@@ -8,20 +8,19 @@ const STATUS = {
     DANGER: 'danger'    // 30+ días
 };
 
-const StatusBadge = ({ status, days }) => {
-    const configs = {
+const StatusBadge = ({ status, days }) => {    const configs = {
         [STATUS.OK]: {
-            className: 'bg-green-100 text-green-800 border-green-200',
+            className: 'bg-gradient-to-r from-blue-400 to-blue-500 text-white shadow-blue-200',
             icon: CheckCircleIcon,
             text: 'Al día'
         },
         [STATUS.WARNING]: {
-            className: 'bg-yellow-100 text-yellow-800 border-yellow-200',
+            className: 'bg-gradient-to-r from-yellow-500 to-yellow-600 text-white shadow-yellow-200',
             icon: ExclamationTriangleIcon,
             text: 'Atención'
         },
         [STATUS.DANGER]: {
-            className: 'bg-red-100 text-red-800 border-red-200',
+            className: 'bg-gradient-to-r from-red-500 to-red-600 text-white shadow-red-200',
             icon: XCircleIcon,
             text: 'Urgente'
         }
@@ -31,10 +30,10 @@ const StatusBadge = ({ status, days }) => {
     const Icon = config.icon;
 
     return (
-        <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-sm font-medium ${config.className}`}>
+        <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium shadow-lg ${config.className} transform transition-all duration-300 hover:scale-105`}>
             <Icon className="h-4 w-4" />
-            <span>{config.text}</span>
-            <span className="ml-1">({days} días)</span>
+            <span className="font-semibold">{config.text}</span>
+            <span className="ml-1 opacity-90">• {days}d</span>
         </div>
     );
 };
@@ -92,30 +91,48 @@ const BeneficiaryCard = ({ beneficiary, contacts }) => {
 
     const successfulContactsThisMonth = contactsThisMonth.filter(c => c.exitoso).length;
 
-    return (
-        <div className={`bg-white rounded-lg shadow-sm border-2 ${statusClasses[status]} transition-colors duration-150`}>
-            <div className="flex justify-between items-start mb-3 p-4">
-                <h3 className="font-semibold text-gray-900 text-lg">{beneficiary}</h3>
-                <StatusBadge status={status} days={daysSinceContact} />
-            </div>
-            
-            <div className="space-y-2 text-sm text-gray-600 p-4 bg-gray-50 rounded-b-lg">
-                <div className="flex justify-between items-center border-b border-gray-200 pb-2">
-                    <span>Contactos este mes:</span>
-                    <div className="text-right">
-                        <span className="font-medium">{contactsThisMonth.length}</span>
-                        <span className="text-green-600 ml-2">
-                            ({successfulContactsThisMonth} exitosos)
-                        </span>
+    return (        <div className={`bg-white rounded-xl shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-300 ${statusClasses[status]}`}>
+            <div className="p-5">
+                <div className="flex justify-between items-start mb-4">
+                    <div>
+                        <h3 className="font-semibold text-gray-800 text-xl mb-1">{beneficiary}</h3>
+                        <StatusBadge status={status} days={daysSinceContact} />
                     </div>
                 </div>
-                <div className="flex justify-between items-center">
-                    <span>Último contacto exitoso:</span>
-                    <span className={`font-medium ${!lastSuccessfulContact ? 'text-red-500' : ''}`}>
-                        {lastSuccessfulContact ? 
-                            parseDate(lastSuccessfulContact).toLocaleDateString() :
-                            'Sin contactos exitosos'}
-                    </span>
+                
+                <div className="space-y-4 mt-4">
+                    <div className="flex flex-col space-y-1">
+                        <div className="flex justify-between items-center">
+                            <span className="text-gray-600">Contactos este mes</span>
+                            <div className="flex items-center space-x-2">
+                                <span className="text-lg font-semibold text-gray-800">{contactsThisMonth.length}</span>                                <span className="bg-blue-50 text-blue-600 text-sm py-0.5 px-2 rounded-full font-medium">
+                                    {successfulContactsThisMonth} exitosos
+                                </span>
+                            </div>
+                        </div>
+                        <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
+                            <div 
+                                className="h-1 bg-gradient-to-r from-blue-400 to-blue-500 rounded-full transition-all duration-300"
+                                style={{ 
+                                    width: `${contactsThisMonth.length ? 
+                                        (successfulContactsThisMonth / contactsThisMonth.length) * 100 : 0}%` 
+                                }}
+                            />
+                        </div>
+                    </div>
+
+                    <div className="border-t border-gray-100 pt-4">
+                        <div className="flex justify-between items-center">
+                            <span className="text-gray-600">Último contacto exitoso</span>
+                            <span className={`font-medium ${!lastSuccessfulContact ? 
+                                'text-red-500 bg-red-50 px-2 py-1 rounded-full text-sm' : 
+                                'text-gray-800'}`}>
+                                {lastSuccessfulContact ? 
+                                    parseDate(lastSuccessfulContact).toLocaleDateString() :
+                                    'Sin contactos exitosos'}
+                            </span>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -209,14 +226,12 @@ function FollowUpHistory() {
             if (!acc[call.beneficiario]) {
                 acc[call.beneficiario] = [];
             }
-            
-            const exitoso = call.resultado?.toLowerCase().includes('exitoso') || false;
-            acc[call.beneficiario].push({
+              acc[call.beneficiario].push({
                 fecha: call.fecha,
                 tipo: call.evento,
                 duracion: call.segundos,
                 resultado: call.resultado,
-                exitoso: exitoso
+                exitoso: call.exitoso
             });
             return acc;
         }, {});
@@ -255,44 +270,76 @@ function FollowUpHistory() {
 
         console.log('Follow-up data processed:', followUpArray);
         setFollowUpData(followUpArray);
-    }, [callData]);
-
-    const filteredData = useMemo(() => {
+    }, [callData]);    const filteredData = useMemo(() => {
         return followUpData.filter(item => {
             // Aplicar búsqueda
             if (searchQuery && !item.beneficiary.toLowerCase().includes(searchQuery.toLowerCase())) {
                 return false;
             }
 
-            const lastContact = item.contacts[0]?.fecha;
-            if (!lastContact) return activeFilter === 'urgent' || activeFilter === 'all';
+            // Encontrar el último contacto exitoso
+            const lastSuccessfulContact = item.contacts.find(c => c.exitoso)?.fecha;
+            
+            // Si no hay contacto exitoso, no puede estar "Al día"
+            if (!lastSuccessfulContact && activeFilter === 'ok') {
+                return false;
+            }
 
-            const days = Math.floor((new Date() - new Date(lastContact)) / (1000 * 60 * 60 * 24));
+            // Verificar si tiene contactos exitosos en el mes actual
+            const thisMonth = new Date().getMonth();
+            const thisYear = new Date().getFullYear();
+            const hasSuccessfulContactThisMonth = item.contacts.some(contact => {
+                const contactDate = parseDate(contact.fecha);
+                return contact.exitoso && 
+                       contactDate &&
+                       contactDate.getMonth() === thisMonth && 
+                       contactDate.getFullYear() === thisYear;
+            });
+
+            const daysSinceLastSuccess = lastSuccessfulContact ? 
+                getDaysSince(lastSuccessfulContact) : 999;
 
             switch (activeFilter) {
                 case 'urgent':
-                    return days >= 30;
+                    return daysSinceLastSuccess >= 30;
                 case 'warning':
-                    return days >= 15 && days < 30;
+                    return daysSinceLastSuccess >= 15 && daysSinceLastSuccess < 30;
                 case 'ok':
-                    return days < 15;
+                    return hasSuccessfulContactThisMonth;
                 default:
                     return true;
             }
         });
-    }, [followUpData, activeFilter, searchQuery]);
-
-    const counts = useMemo(() => {
+    }, [followUpData, activeFilter, searchQuery]);    const counts = useMemo(() => {
         return followUpData.reduce((acc, item) => {
-            const lastContact = item.contacts[0]?.fecha;
-            const days = lastContact 
-                ? Math.floor((new Date() - new Date(lastContact)) / (1000 * 60 * 60 * 24))
-                : 999;
-
             acc.all++;
-            if (days >= 30) acc.urgent++;
-            else if (days >= 15) acc.warning++;
-            else acc.ok++;
+
+            // Encontrar el último contacto exitoso
+            const lastSuccessfulContact = item.contacts.find(c => c.exitoso)?.fecha;
+            
+            // Verificar si tiene contactos exitosos en el mes actual
+            const thisMonth = new Date().getMonth();
+            const thisYear = new Date().getFullYear();
+            const hasSuccessfulContactThisMonth = item.contacts.some(contact => {
+                const contactDate = parseDate(contact.fecha);
+                return contact.exitoso && 
+                       contactDate &&
+                       contactDate.getMonth() === thisMonth && 
+                       contactDate.getFullYear() === thisYear;
+            });
+
+            const daysSinceLastSuccess = lastSuccessfulContact ? 
+                getDaysSince(lastSuccessfulContact) : 999;
+
+            if (hasSuccessfulContactThisMonth) {
+                acc.ok++;
+            } else if (daysSinceLastSuccess >= 30) {
+                acc.urgent++;
+            } else if (daysSinceLastSuccess >= 15) {
+                acc.warning++;
+            } else {
+                acc.warning++; // Si no tiene contacto exitoso este mes, va a pendientes
+            }
 
             return acc;
         }, { all: 0, urgent: 0, warning: 0, ok: 0 });

@@ -47,66 +47,99 @@ function CallDataAnalyzer() {
         horasPico: new Map()
     });
     const [operatorStats, setOperatorStats] = useState({});    const uploadTimeout = useRef(null);
-    const processingTimeout = useRef(null);    // Función para obtener la teleoperadora asignada a un beneficiario por su teléfono o nombre
+    const processingTimeout = useRef(null);    // Cache para asignaciones
+    const assignmentCache = useRef(new Map());
+
+    // Función para limpiar el caché cuando cambian las asignaciones
+    useEffect(() => {
+        assignmentCache.current.clear();
+    }, [assignments]);
+
+    // Función para normalizar texto
+    const normalizeText = useCallback((text) => {
+        return text?.toString()
+            .toLowerCase()
+            .trim()
+            .replace(/\s+/g, ' ') || '';
+    }, []);
+
+    // Función para obtener la teleoperadora asignada a un beneficiario
     const getTeleoperadora = useCallback((telefono, nombre) => {
-        if (!assignments?.asignaciones) {
-            console.log('No hay asignaciones disponibles');
+        if (!assignments?.asignaciones || Object.keys(assignments.asignaciones).length === 0) {
+            console.warn('No hay asignaciones disponibles o están vacías:', assignments);
             return 'No identificada';
         }
 
         // Normalizar el teléfono y el nombre para la búsqueda
         const normalizedTelefono = telefono?.toString().trim();
-        const normalizedNombre = nombre?.toString().trim().toLowerCase();
+        const normalizedNombre = normalizeText(nombre);
+
+        // Verificar el caché primero
+        const cacheKey = `${normalizedNombre}|${normalizedTelefono}`;
+        if (assignmentCache.current.has(cacheKey)) {
+            return assignmentCache.current.get(cacheKey);
+        }
 
         if (!normalizedTelefono && !normalizedNombre) {
-            console.log('Teléfono y nombre vacíos');
+            console.warn('Teléfono y nombre vacíos');
             return 'No identificada';
         }
 
         // Buscar en las asignaciones de cada operadora
-        for (const [operadoraNombre, asignaciones] of Object.entries(assignments.asignaciones)) {
+        let teleoperadoraEncontrada = 'No identificada';
+        
+        Object.entries(assignments.asignaciones).forEach(([operadoraNombre, asignaciones]) => {
             if (!Array.isArray(asignaciones)) {
-                console.log(`Asignaciones no válidas para ${operadoraNombre}`);
-                continue;
+                console.warn(`Asignaciones no válidas para ${operadoraNombre}`);
+                return;
             }
 
-            const encontrado = asignaciones.some(asignacion => {
-                if (!asignacion) return false;
+            asignaciones.forEach(asignacion => {
+                if (!asignacion || teleoperadoraEncontrada !== 'No identificada') return;
 
-                // Verificar coincidencia por nombre
-                const nombreCoincide = normalizedNombre && asignacion.beneficiario && 
-                    asignacion.beneficiario.toLowerCase().trim() === normalizedNombre;
+                try {
+                    // Verificar coincidencia por nombre
+                    const nombreCoincide = normalizedNombre && asignacion.beneficiario && 
+                        normalizeText(asignacion.beneficiario) === normalizedNombre;
 
-                // Verificar coincidencia por teléfono
-                const telefonoCoincide = normalizedTelefono && asignacion.telefonos && 
-                    Array.isArray(asignacion.telefonos) &&
-                    asignacion.telefonos.some(tel => 
-                        tel?.toString().trim() === normalizedTelefono
-                    );
+                    // Verificar coincidencia por teléfono
+                    const telefonoCoincide = normalizedTelefono && asignacion.telefonos && 
+                        Array.isArray(asignacion.telefonos) &&
+                        asignacion.telefonos.some(tel => 
+                            normalizeText(tel) === normalizedTelefono
+                        );
 
-                if (nombreCoincide || telefonoCoincide) {
-                    console.log(`Coincidencia encontrada para ${operadoraNombre}:`, {
-                        nombre: nombreCoincide ? 'sí' : 'no',
-                        telefono: telefonoCoincide ? 'sí' : 'no',
-                        beneficiario: normalizedNombre,
-                        telefonoLlamada: normalizedTelefono
+                    if (nombreCoincide || telefonoCoincide) {
+                        console.log(`Coincidencia encontrada para ${operadoraNombre}:`, {
+                            beneficiario: nombre,
+                            telefono: telefono,
+                            tipo: nombreCoincide ? 'por nombre' : 'por teléfono'
+                        });
+                        teleoperadoraEncontrada = operadoraNombre;
+                    }
+                } catch (error) {
+                    console.error('Error procesando asignación:', error, {
+                        operadora: operadoraNombre,
+                        asignacion: asignacion
                     });
                 }
-
-                return nombreCoincide || telefonoCoincide;
             });
-            
-            if (encontrado) {
-                return operadoraNombre;
-            }
+        });
+        
+        // Guardar en caché el resultado
+        assignmentCache.current.set(cacheKey, teleoperadoraEncontrada);
+        
+        if (teleoperadoraEncontrada === 'No identificada') {
+            console.log('No se encontró asignación para:', {
+                beneficiario: nombre,
+                telefono: telefono,
+                normalizedNombre: normalizedNombre,
+                normalizedTelefono: normalizedTelefono
+            });
         }
         
-        console.log('No se encontró asignación para:', {
-            nombre: normalizedNombre,
-            telefono: normalizedTelefono
-        });
-        return 'No identificada';
-    }, [assignments?.asignaciones]);
+        return teleoperadoraEncontrada;
+    }, [assignments?.asignaciones, normalizeText]);
 
     const handleFileChange = useCallback((e) => {
         const selectedFile = e.target.files[0];
@@ -155,11 +188,74 @@ function CallDataAnalyzer() {
     // Función para determinar si una llamada fue exitosa
     const isCallSuccessful = useCallback((resultado) => {
         if (!resultado) return false;
-        const resultadoLower = resultado.toString().toLowerCase();
-        return resultadoLower.includes('exitoso') || resultadoLower.includes('llamado exitoso');
-    }, []);
+        const resultadoLower = resultado.toString().toLowerCase().trim();
+        
+        // Patrones comunes de llamadas exitosas
+        const exitosoPatterns = [
+            'exitoso',
+            'llamado exitoso',
+            /^\d+\s*llamado exitoso/,  // Para casos como "222 Llamado exitoso"
+            /llamado\s+exitoso\s+\d+/  // Para casos como "Llamado exitoso 222"
+        ];
+        
+        return exitosoPatterns.some(pattern => {
+            if (pattern instanceof RegExp) {
+                return pattern.test(resultadoLower);
+            }
+            return resultadoLower.includes(pattern);
+        });
+    }, []);    const processRowsChunk = useCallback((rows, startIdx, endIdx, colIndexes) => {
+        // Crear un mapa inicial de operadoras desde las asignaciones
+        const operadorasMap = new Map();
+        
+        if (assignments?.asignaciones) {
+            // Primero, inicializar todas las operadoras con sus métricas
+            Object.keys(assignments.asignaciones).forEach(operadora => {
+                operadorasMap.set(operadora, {
+                    totalLlamadas: 0,
+                    entrantes: 0,
+                    salientes: 0,
+                    duracionTotal: 0,
+                    beneficiarios: new Set(),
+                    fechas: new Set(),
+                    llamadasExitosas: 0,
+                    promedioDiario: 0
+                });
+            });
 
-    const processRowsChunk = useCallback((rows, startIdx, endIdx, colIndexes) => {
+            // Pre-mapear beneficiarios a operadoras para búsqueda rápida
+            Object.entries(assignments.asignaciones).forEach(([operadora, asignaciones]) => {
+                asignaciones.forEach(asignacion => {
+                    if (asignacion?.beneficiario) {
+                        const normalizedBeneficiario = normalizeText(asignacion.beneficiario);
+                        assignmentCache.current.set(`beneficiario:${normalizedBeneficiario}`, operadora);
+                        
+                        // También mapear por teléfono
+                        if (asignacion.telefonos && Array.isArray(asignacion.telefonos)) {
+                            asignacion.telefonos.forEach(tel => {
+                                const normalizedTel = tel?.toString().trim();
+                                if (normalizedTel) {
+                                    assignmentCache.current.set(`telefono:${normalizedTel}`, operadora);
+                                }
+                            });
+                        }
+                    }
+                });
+            });
+        }
+
+        // Agregar "No identificada" al mapa
+        operadorasMap.set('No identificada', {
+            totalLlamadas: 0,
+            entrantes: 0,
+            salientes: 0,
+            duracionTotal: 0,
+            beneficiarios: new Set(),
+            fechas: new Set(),
+            llamadasExitosas: 0,
+            promedioDiario: 0
+        });
+
         const stats = {
             totalLlamadas: 0,
             entrantes: 0,
@@ -169,34 +265,9 @@ function CallDataAnalyzer() {
             beneficiarios: new Set(),
             comunas: new Map(),
             horasPico: new Map(),
-            operadoras: new Map(),
+            operadoras: operadorasMap,
             llamadasExitosas: 0
         };
-
-        // Inicializar el mapa de operadoras
-        if (assignments?.asignaciones) {
-            Object.keys(assignments.asignaciones).forEach(operadora => {
-                stats.operadoras.set(operadora, {
-                    totalLlamadas: 0,
-                    entrantes: 0,
-                    salientes: 0,
-                    duracionTotal: 0,
-                    fechas: new Set(),
-                    llamadasExitosas: 0
-                });
-            });
-        }
-
-        if (!stats.operadoras.has('No identificada')) {
-            stats.operadoras.set('No identificada', {
-                totalLlamadas: 0,
-                entrantes: 0,
-                salientes: 0,
-                duracionTotal: 0,
-                fechas: new Set(),
-                llamadasExitosas: 0
-            });
-        }
 
         for (let i = startIdx; i < Math.min(endIdx, rows.length); i++) {
             const row = rows[i];
@@ -249,9 +320,7 @@ function CallDataAnalyzer() {
                     } catch (err) {
                         console.warn('Error procesando hora:', horaInicio, err);
                     }
-                }
-
-                // Actualizar estadísticas por operadora
+                }                // Actualizar estadísticas por operadora
                 const operadoraStats = stats.operadoras.get(teleoperadora);
                 if (operadoraStats) {
                     operadoraStats.totalLlamadas++;
@@ -265,6 +334,13 @@ function CallDataAnalyzer() {
                     if (fecha) {
                         operadoraStats.fechas.add(fechaStr);
                     }
+                    if (beneficiario !== 'No identificado') {
+                        operadoraStats.beneficiarios.add(beneficiario);
+                    }
+                    
+                    // Actualizar promedio diario
+                    const diasTrabajados = operadoraStats.fechas.size || 1;
+                    operadoraStats.promedioDiario = operadoraStats.totalLlamadas / diasTrabajados;
                 }
 
             } catch (err) {
@@ -373,39 +449,45 @@ function CallDataAnalyzer() {
             // Procesar los datos en chunks
             const newStats = await processRows(rows, colIndexes);
 
-            if (newStats) {
-                // Procesar estadísticas por operadora
+            if (newStats) {                // Procesar estadísticas por operadora
                 const operatorStats = {};
                 newStats.operadoras.forEach((stats, operadora) => {
+                    const diasTrabajados = stats.fechas.size || 1;
                     operatorStats[operadora] = {
                         totalLlamadas: stats.totalLlamadas,
                         entrantes: stats.entrantes,
                         salientes: stats.salientes,
                         duracionTotal: stats.duracionTotal,
-                        diasTrabajados: stats.fechas.size,
-                        duracionPromedio: stats.totalLlamadas > 0 ? stats.duracionTotal / stats.totalLlamadas : 0
+                        diasTrabajados: diasTrabajados,
+                        promedioDiario: (stats.totalLlamadas / diasTrabajados).toFixed(1),
+                        duracionPromedio: stats.totalLlamadas > 0 ? Math.round(stats.duracionTotal / stats.totalLlamadas) : 0,
+                        llamadasExitosas: stats.llamadasExitosas,
+                        beneficiariosUnicos: stats.beneficiarios.size
                     };
-                });                // Actualizar estado local
+                });// Actualizar estado local
                 setStats(newStats);
                 setOperatorStats(operatorStats);
 
                 // Guardar datos en Firebase
-                await saveCallData(newStats, operatorStats, rows);
-
-                // Preparar datos para el contexto global
-                const processedCalls = rows.slice(1).map((row, index) => ({
-                    id: row[colIndexes.id]?.toString() || index.toString(),
-                    fecha: row[colIndexes.fecha]?.toString() || '',
-                    beneficiario: row[colIndexes.beneficiario]?.toString() || '',
-                    comuna: row[colIndexes.comuna]?.toString() || '',
-                    evento: row[colIndexes.evento]?.toString().toLowerCase() || '',
-                    fono: row[colIndexes.fono]?.toString() || '',
-                    segundos: parseInt(row[colIndexes.seg], 10) || 0,
-                    teleoperadora: getTeleoperadora(
-                        row[colIndexes.fono]?.toString() || '',
-                        row[colIndexes.beneficiario]?.toString() || ''
-                    )
-                }));
+                await saveCallData(newStats, operatorStats, rows);                // Preparar datos para el contexto global
+                const processedCalls = rows.slice(1).map((row, index) => {
+                    const resultado = row[colIndexes.resultado]?.toString() || '';
+                    return {
+                        id: row[colIndexes.id]?.toString() || index.toString(),
+                        fecha: row[colIndexes.fecha]?.toString() || '',
+                        beneficiario: row[colIndexes.beneficiario]?.toString() || '',
+                        comuna: row[colIndexes.comuna]?.toString() || '',
+                        evento: row[colIndexes.evento]?.toString().toLowerCase() || '',
+                        fono: row[colIndexes.fono]?.toString() || '',
+                        segundos: parseInt(row[colIndexes.seg], 10) || 0,
+                        resultado: resultado,
+                        exitoso: isCallSuccessful(resultado),
+                        teleoperadora: getTeleoperadora(
+                            row[colIndexes.fono]?.toString() || '',
+                            row[colIndexes.beneficiario]?.toString() || ''
+                        )
+                    };
+                });
 
                 // Actualizar el contexto global
                 updateCallData(processedCalls);
@@ -460,14 +542,15 @@ function CallDataAnalyzer() {
                                 // Update global context with the most recent data
                                 if (lastUpload.rawData && Array.isArray(lastUpload.rawData)) {
                                     try {
-                                        const processedCalls = lastUpload.rawData.map(row => ({
-                                            id: row.id || '',
+                                        const processedCalls = lastUpload.rawData.map(row => ({                                            id: row.id || '',
                                             fecha: row.fecha || '',
                                             beneficiario: row.beneficiario || '',
                                             comuna: row.comuna || '',
                                             evento: row.evento?.toLowerCase() || '',
                                             fono: row.fono || '',
                                             segundos: parseInt(row.seg, 10) || 0,
+                                            resultado: row.resultado || '',
+                                            exitoso: isCallSuccessful(row.resultado || ''),
                                             teleoperadora: getTeleoperadora(
                                                 row.fono || '',
                                                 row.beneficiario || ''
@@ -543,111 +626,79 @@ function CallDataAnalyzer() {
 
     // Función para convertir datos de Firestore a Sets y Maps
     const convertFirestoreToStats = (firestoreStats) => {
-        if (!firestoreStats) return null;
-
-        // Deep clone to avoid modifying original data
-        const stats = {...firestoreStats};
-
-        // Convert Array back to Set
-        if (Array.isArray(firestoreStats.beneficiarios)) {
-            stats.beneficiarios = new Set(firestoreStats.beneficiarios);
-        }
-
-        // Convert plain objects back to Maps
-        if (firestoreStats.comunas && typeof firestoreStats.comunas === 'object') {
-            stats.comunas = new Map(Object.entries(firestoreStats.comunas));
-        }
-
-        if (firestoreStats.horasPico && typeof firestoreStats.horasPico === 'object') {
-            stats.horasPico = new Map(Object.entries(firestoreStats.horasPico));
-        }
-
-        // Handle the nested operadoras structure
-        if (firestoreStats.operadoras && typeof firestoreStats.operadoras === 'object') {
-            stats.operadoras = new Map(
+        return {
+            ...firestoreStats,
+            beneficiarios: new Set(firestoreStats.beneficiarios),
+            comunas: new Map(Object.entries(firestoreStats.comunas)),
+            horasPico: new Map(Object.entries(firestoreStats.horasPico)),
+            operadoras: new Map(
                 Object.entries(firestoreStats.operadoras).map(([key, value]) => [
                     key,
                     {
                         ...value,
-                        fechas: Array.isArray(value.fechas) ? new Set(value.fechas) : value.fechas
+                        beneficiarios: new Set(value.beneficiarios),
+                        fechas: new Set(value.fechas)
                     }
                 ])
-            );
-        }
+            )
+        };
+    };
 
-        return stats;
+    // Función para convertir estructuras de datos complejas a formato Firestore
+    const convertStatsForFirestore = (stats) => {
+        // Convertir las estructuras de datos complejas a formatos que Firestore pueda manejar
+        const convertedStats = {
+            totalLlamadas: stats.totalLlamadas,
+            entrantes: stats.entrantes,
+            salientes: stats.salientes,
+            duracionTotal: stats.duracionTotal,
+            duracionPromedio: stats.duracionPromedio,
+            llamadasExitosas: stats.llamadasExitosas,
+            beneficiarios: Array.from(stats.beneficiarios),
+            comunas: Object.fromEntries(stats.comunas),
+            horasPico: Object.fromEntries(stats.horasPico),
+            operadoras: Object.fromEntries(
+                Array.from(stats.operadoras).map(([key, value]) => [
+                    key,
+                    {
+                        totalLlamadas: value.totalLlamadas,
+                        entrantes: value.entrantes,
+                        salientes: value.salientes,
+                        duracionTotal: value.duracionTotal,
+                        duracionPromedio: value.duracionPromedio || 0,
+                        llamadasExitosas: value.llamadasExitosas,
+                        promedioDiario: value.promedioDiario || 0,
+                        beneficiarios: Array.from(value.beneficiarios),
+                        fechas: Array.from(value.fechas)
+                    }
+                ])
+            )
+        };
+        return convertedStats;
     };
 
     // Función para guardar datos en Firebase
-    const saveCallData = async (newStats, newOperatorStats, rawData) => {
+    const saveCallData = async (stats, operatorStats, rawData) => {
         try {
-            // Validate that we have valid data before saving
-            if (!newStats || !newOperatorStats || !rawData) {
-                throw new Error('Missing required data for saving');
-            }
+            const docRef = doc(db, 'llamadas', crypto.randomUUID());
+            const convertedStats = convertStatsForFirestore(stats);
+            
+            // Convertir las fechas del rawData a strings ISO
+            const processedRawData = rawData.map(row => ({
+                ...row,
+                fecha: row.fecha ? new Date(row.fecha).toISOString() : null
+            }));
 
-            // Verify that newStats has the expected structure before conversion
-            const requiredProperties = ['totalLlamadas', 'entrantes', 'salientes', 'beneficiarios', 'comunas', 'horasPico', 'operadoras'];
-            for (const prop of requiredProperties) {
-                if (!(prop in newStats)) {
-                    throw new Error(`Missing required property in stats: ${prop}`);
-                }
-            }
-
-            // Prepare data for Firestore
-            const preparedStats = prepareStatsForFirestore(newStats);
-            const preparedRawData = prepareRawDataForFirestore(rawData);
-
-            // Validate the conversion worked correctly
-            if (!preparedStats || 
-                !Array.isArray(preparedStats.beneficiarios) ||
-                typeof preparedStats.comunas !== 'object' ||
-                typeof preparedStats.horasPico !== 'object' ||
-                typeof preparedStats.operadoras !== 'object') {
-                throw new Error('Data conversion for Firestore failed');
-            }
-
-            // Create the document to save
-            const docData = {
-                stats: preparedStats,
-                operatorStats: newOperatorStats,
-                rawData: preparedRawData,
+            await setDoc(docRef, {
+                stats: convertedStats,
+                operatorStats,
+                rawData: processedRawData,
                 uploadDate: new Date().toISOString()
-            };
-
-            // Save to Firestore
-            const callsRef = doc(collection(db, 'llamadas'));
-            await setDoc(callsRef, docData);
-
-            console.log('Call data saved successfully');
-        } catch (error) {
-            console.error('Error saving call data:', error);
-            throw new Error(`Failed to save call data: ${error.message}`);
+            });
+        } catch (err) {
+            console.error('Error saving call data:', err);
+            throw new Error('Failed to save call data: ' + err.message);
         }
-    };
-
-    // Función para preparar datos raw para Firestore
-    const prepareRawDataForFirestore = (rawData) => {
-        if (!Array.isArray(rawData)) return [];
-        
-        // Convertir el array de arrays en un array de objetos
-        return rawData.map((row, index) => {
-            if (!Array.isArray(row)) return null;
-            return {
-                id: row[0]?.toString() || index.toString(),
-                fecha: row[1]?.toString() || '',
-                beneficiario: row[2]?.toString() || '',
-                comuna: row[3]?.toString() || '',
-                evento: row[4]?.toString() || '',
-                fono: row[5]?.toString() || '',
-                ini: row[6]?.toString() || '',
-                fin: row[7]?.toString() || '',
-                seg: row[8]?.toString() || '',
-                resultado: row[9]?.toString() || '',
-                observacion: row[10]?.toString() || '',
-                apiId: row[11]?.toString() || ''
-            };
-        }).filter(row => row !== null);
     };
 
     // Cleanup effect
