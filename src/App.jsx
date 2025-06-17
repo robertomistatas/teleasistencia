@@ -1,4 +1,4 @@
-import React, { useState, useEffect, createContext, useContext } from 'react';
+import React, { useState, useEffect, createContext, useContext, useCallback } from 'react';
 import { initializeApp } from 'firebase/app';
 import { 
     getAuth, 
@@ -28,6 +28,7 @@ import CallDataAnalyzer from './components/CallDataAnalyzer';
 import Logo from './components/Logo';
 import AssignmentManager from './components/AssignmentManager';
 import Dashboard from './components/Dashboard';
+import FollowUpHistory from './components/FollowUpHistory';
 
 // Firebase Configuration
 const firebaseConfig = {
@@ -98,69 +99,83 @@ function DataProvider({ children }) {
     });
 
     const [assignments, setAssignments] = useState({
-        operadoras: [],
         asignaciones: {},
-        totalBeneficiarios: 0
+        loading: true,
+        error: null
     });
 
-    const updateCallData = (newData) => {
-        const beneficiariosSet = new Set(newData.map(call => call.beneficiario));
-        const llamadosPorOp = {};
-        const rendimientoPorOp = {};
-        
-        assignments.operadoras.forEach(op => {
-            const llamadosOp = newData.filter(call => {
-                const beneficiario = call.beneficiario.toLowerCase();
-                return assignments.asignaciones[op.nombre]?.some(
-                    asig => asig.beneficiario.toLowerCase() === beneficiario
-                );
-            });
+    // Cargar asignaciones al montar el componente
+    useEffect(() => {
+        const loadAssignments = async () => {
+            try {
+                const asignacionesQuery = query(collection(db, 'asignaciones'));
+                const querySnapshot = await getDocs(asignacionesQuery);
+                
+                const asignacionesPorOperadora = {};
+                
+                querySnapshot.forEach((doc) => {
+                    const data = doc.data();
+                    if (data.teleoperadora && data.beneficiario) {
+                        if (!asignacionesPorOperadora[data.teleoperadora]) {
+                            asignacionesPorOperadora[data.teleoperadora] = [];
+                        }
+                        asignacionesPorOperadora[data.teleoperadora].push({
+                            id: doc.id,
+                            beneficiario: data.beneficiario,
+                            telefonos: data.telefonos || [],
+                            ...data
+                        });
+                    }
+                });
 
-            llamadosPorOp[op.nombre] = llamadosOp.length;
-            rendimientoPorOp[op.nombre] = {
-                llamados: llamadosOp.length,
-                minutos: Math.round(llamadosOp.reduce((acc, call) => acc + call.segundos, 0) / 60)
-            };
-        });
+                console.log('Asignaciones cargadas:', asignacionesPorOperadora);
+                
+                setAssignments(prev => ({
+                    ...prev,
+                    asignaciones: asignacionesPorOperadora,
+                    loading: false,
+                    error: null
+                }));
+            } catch (error) {
+                console.error('Error cargando asignaciones:', error);
+                setAssignments(prev => ({
+                    ...prev,
+                    loading: false,
+                    error: error.message
+                }));
+            }
+        };
 
-        const cobertura = assignments.totalBeneficiarios > 0 
-            ? (beneficiariosSet.size / assignments.totalBeneficiarios * 100).toFixed(1)
-            : 0;
+        loadAssignments();
+    }, []);
 
-        setCallData({
-            totalLlamados: newData.length,
-            tiempoTotal: Math.round(newData.reduce((acc, call) => acc + call.segundos, 0) / 60),
-            cobertura,
-            llamadosPorOperadora: llamadosPorOp,
-            rendimientoPorOperadora: rendimientoPorOp,
-            beneficiariosAtendidos: beneficiariosSet,
+    const updateAssignments = useCallback((newAssignments) => {
+        console.log('Actualizando asignaciones:', newAssignments);
+        setAssignments(prev => ({
+            ...prev,
+            asignaciones: newAssignments,
+            loading: false,
+            error: null
+        }));
+    }, []);
+
+    const updateCallData = useCallback((newData) => {
+        console.log('Actualizando datos de llamadas:', newData);
+        setCallData(prev => ({
+            ...prev,
             detallesLlamadas: newData
-        });
-    };
+        }));
+    }, []);
 
-    const updateAssignments = (data) => {
-        if (!data || !data.asignaciones) {
-            console.log('No hay datos de asignaciones para actualizar');
-            return;
-        }
-
-        const totalBeneficiarios = Object.values(data.asignaciones)
-            .reduce((acc, curr) => acc + (curr.beneficiarios?.length || 0), 0);
-
-        setAssignments({
-            operadoras: data.operadoras || [],
-            asignaciones: data.asignaciones || {},
-            totalBeneficiarios: data.totalBeneficiarios || totalBeneficiarios || 0
-        });
+    const value = {
+        callData,
+        assignments,
+        updateCallData,
+        updateAssignments
     };
 
     return (
-        <DataContext.Provider value={{
-            callData,
-            assignments,
-            updateCallData,
-            updateAssignments
-        }}>
+        <DataContext.Provider value={value}>
             {children}
         </DataContext.Provider>
     );
@@ -215,9 +230,18 @@ function MainContent() {
                                         activeTab === 'asignaciones' 
                                             ? 'bg-blue-500 text-white' 
                                             : 'text-gray-600 hover:bg-gray-100'
+                                    }`}                                >
+                                    Asignaciones
+                                </button>
+                                <button 
+                                    onClick={() => setActiveTab('seguimiento')}
+                                    className={`px-4 py-2 rounded-lg transition-colors duration-150 ${
+                                        activeTab === 'seguimiento' 
+                                            ? 'bg-blue-500 text-white' 
+                                            : 'text-gray-600 hover:bg-gray-100'
                                     }`}
                                 >
-                                    Asignaciones
+                                    Historial de Seguimientos
                                 </button>
                             </nav>
                             <button 
@@ -232,10 +256,10 @@ function MainContent() {
 
                 {/* Main content */}
                 <main className="flex-1 overflow-y-auto bg-gray-50">
-                    <div className="mx-auto max-w-7xl px-4 py-6">
-                        {activeTab === 'dashboard' && <Dashboard />}
+                    <div className="mx-auto max-w-7xl px-4 py-6">                        {activeTab === 'dashboard' && <Dashboard />}
                         {activeTab === 'llamadas' && <CallDataAnalyzer />}
                         {activeTab === 'asignaciones' && <AssignmentManager />}
+                        {activeTab === 'seguimiento' && <FollowUpHistory />}
                     </div>
                 </main>
             </div>
