@@ -3,14 +3,14 @@
     "file": "assets/vendor-405c900a.js"
   },
   "index.css": {
-    "file": "assets/index-cd5e54ac.css",
+    "file": "assets/index-c210103a.css",
     "src": "index.css"
   },
   "index.html": {
     "css": [
-      "assets/index-cd5e54ac.css"
+      "assets/index-c210103a.css"
     ],
-    "file": "assets/main-8341a1c6.js",
+    "file": "assets/main-362959eb.js",
     "imports": [
       "_vendor-405c900a.js"
     ],
