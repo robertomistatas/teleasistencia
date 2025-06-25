@@ -1,18 +1,29 @@
 {
-  "_vendor-405c900a.js": {
-    "file": "assets/vendor-405c900a.js"
+  "_vendor-firebase-d84182c4.js": {
+    "file": "assets/vendor-firebase-d84182c4.js"
+  },
+  "_vendor-react-da68e5f0.js": {
+    "file": "assets/vendor-react-da68e5f0.js"
+  },
+  "_vendor-ui-4ed993c7.js": {
+    "file": "assets/vendor-ui-4ed993c7.js"
+  },
+  "_vendor-utils-2f7b8edf.js": {
+    "file": "assets/vendor-utils-2f7b8edf.js"
   },
   "index.css": {
-    "file": "assets/index-c210103a.css",
+    "file": "assets/index-841d9b6c.css",
     "src": "index.css"
   },
   "index.html": {
     "css": [
-      "assets/index-c210103a.css"
+      "assets/index-841d9b6c.css"
     ],
-    "file": "assets/main-362959eb.js",
+    "file": "assets/main-d5108d7d.js",
     "imports": [
-      "_vendor-405c900a.js"
+      "_vendor-react-da68e5f0.js",
+      "_vendor-firebase-d84182c4.js",
+      "_vendor-utils-2f7b8edf.js"
     ],
     "isEntry": true,
     "src": "index.html"
