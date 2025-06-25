@@ -21,14 +21,11 @@ ChartJS.register(
 
 const options = {
     responsive: true,
+    maintainAspectRatio: false,
     plugins: {
         legend: {
             position: 'top',
         },
-        title: {
-            display: true,
-            text: 'Llamadas por Hora'
-        }
     },
     scales: {
         y: {
@@ -41,11 +38,15 @@ const options = {
 };
 
 const BarChart = ({ data }) => {
-    if (!data || !data.labels || !data.datasets) {
-        return <div>No hay datos disponibles</div>;
+    if (!data?.labels?.length) {
+        return null;
     }
 
-    return <Bar options={options} data={data} />;
+    return (
+        <div className="h-full w-full">
+            <Bar options={options} data={data} />
+        </div>
+    );
 };
 
-export default React.memo(BarChart);
+export default BarChart;

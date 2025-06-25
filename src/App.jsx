@@ -29,6 +29,7 @@ import Logo from './components/Logo';
 import AssignmentManager from './components/AssignmentManager';
 import Dashboard from './components/Dashboard';
 import FollowUpHistory from './components/FollowUpHistory';
+import LoginForm from './components/LoginForm';
 
 // Firebase Configuration
 const firebaseConfig = {
@@ -86,99 +87,152 @@ export function useAuth() {
     return useContext(AuthContext);
 }
 
+// Estado inicial para el contexto de datos
+const initialCallData = {
+    totalLlamadas: 0,
+    entrantes: 0,
+    salientes: 0,
+    duracionTotal: 0,
+    duracionPromedio: 0,
+    beneficiarios: [],
+    llamadasPorBeneficiario: {},
+    ultimasLlamadas: {},
+    llamadasExitosas: {},
+    beneficiariosAlDia: [],
+    beneficiariosPendientes: [],
+    beneficiariosUrgentes: [],
+    comunas: {},
+    teleoperadoras: {},
+    lastUpdate: null
+};
+
 // Proveedor de datos
-function DataProvider({ children }) {
-    const [callData, setCallData] = useState({
-        totalLlamados: 0,
-        tiempoTotal: 0,
-        cobertura: 0,
-        llamadosPorOperadora: {},
-        rendimientoPorOperadora: {},
-        beneficiariosAtendidos: new Set(),
-        detallesLlamadas: []
+export function DataProvider({ children }) {
+    const [callData, setCallData] = useState(() => {
+        // Intentar cargar datos desde localStorage
+        try {
+            const saved = localStorage.getItem('callData');
+            return saved ? JSON.parse(saved) : initialCallData;
+        } catch (error) {
+            console.error('Error loading data from localStorage:', error);
+            return initialCallData;
+        }
     });
 
-    const [assignments, setAssignments] = useState({
-        asignaciones: {},
-        loading: true,
-        error: null
+    const [assignments, setAssignments] = useState(() => {
+        // Intentar cargar asignaciones desde localStorage
+        try {
+            const saved = localStorage.getItem('assignments');
+            return saved ? JSON.parse(saved) : { asignaciones: {} };
+        } catch (error) {
+            console.error('Error loading assignments from localStorage:', error);
+            return { asignaciones: {} };
+        }
     });
 
-    // Cargar asignaciones al montar el componente
+    // Guardar datos en localStorage cuando cambien
     useEffect(() => {
-        const loadAssignments = async () => {
-            try {
-                const asignacionesQuery = query(collection(db, 'asignaciones'));
-                const querySnapshot = await getDocs(asignacionesQuery);
-                
-                const asignacionesPorOperadora = {};
-                
-                querySnapshot.forEach((doc) => {
-                    const data = doc.data();
-                    if (data.teleoperadora && data.beneficiario) {
-                        if (!asignacionesPorOperadora[data.teleoperadora]) {
-                            asignacionesPorOperadora[data.teleoperadora] = [];
-                        }
-                        asignacionesPorOperadora[data.teleoperadora].push({
-                            id: doc.id,
-                            beneficiario: data.beneficiario,
-                            telefonos: data.telefonos || [],
-                            ...data
-                        });
-                    }
-                });
-
-                console.log('Asignaciones cargadas:', asignacionesPorOperadora);
-                
-                setAssignments(prev => ({
-                    ...prev,
-                    asignaciones: asignacionesPorOperadora,
-                    loading: false,
-                    error: null
-                }));
-            } catch (error) {
-                console.error('Error cargando asignaciones:', error);
-                setAssignments(prev => ({
-                    ...prev,
-                    loading: false,
-                    error: error.message
-                }));
+        try {
+            if (callData && Object.keys(callData).length > 0) {
+                console.log('Guardando datos en localStorage:', callData);
+                localStorage.setItem('callData', JSON.stringify(callData));
             }
-        };
+        } catch (error) {
+            console.error('Error guardando datos:', error);
+        }
+    }, [callData]);
 
-        loadAssignments();
-    }, []);
+    // Guardar asignaciones en localStorage cuando cambien
+    useEffect(() => {
+        try {
+            if (assignments && Object.keys(assignments).length > 0) {
+                localStorage.setItem('assignments', JSON.stringify(assignments));
+            }
+        } catch (error) {
+            console.error('Error guardando asignaciones:', error);
+        }
+    }, [assignments]);
 
-    const updateAssignments = useCallback((newAssignments) => {
-        console.log('Actualizando asignaciones:', newAssignments);
-        setAssignments(prev => ({
-            ...prev,
-            asignaciones: newAssignments,
-            loading: false,
-            error: null
-        }));
-    }, []);
-
+    // Función para actualizar datos
     const updateCallData = useCallback((newData) => {
         console.log('Actualizando datos de llamadas:', newData);
-        setCallData(prev => ({
+        setCallData(prevData => {
+            // Asegurarse de que las estructuras de datos estén presentes
+            const updatedData = {
+                ...initialCallData,
+                ...prevData,
+                ...newData,
+                lastUpdate: new Date().toISOString(),
+                // Asegurar que las propiedades críticas existan
+                llamadasPorBeneficiario: {
+                    ...(prevData.llamadasPorBeneficiario || {}),
+                    ...(newData.llamadasPorBeneficiario || {})
+                },
+                beneficiarios: Array.isArray(newData.beneficiarios) ? newData.beneficiarios : [],
+                beneficiariosAlDia: Array.isArray(newData.beneficiariosAlDia) ? newData.beneficiariosAlDia : [],
+                beneficiariosPendientes: Array.isArray(newData.beneficiariosPendientes) ? newData.beneficiariosPendientes : [],
+                beneficiariosUrgentes: Array.isArray(newData.beneficiariosUrgentes) ? newData.beneficiariosUrgentes : []
+            };
+            return updatedData;
+        });
+    }, []);
+
+    // Función para actualizar asignaciones
+    const updateAssignments = useCallback((newAssignments) => {
+        setAssignments(prev => ({
             ...prev,
-            detallesLlamadas: newData
+            asignaciones: {
+                ...(prev.asignaciones || {}),
+                ...newAssignments
+            }
         }));
     }, []);
 
-    const value = {
-        callData,
-        assignments,
-        updateCallData,
-        updateAssignments
-    };
-
     return (
-        <DataContext.Provider value={value}>
+        <DataContext.Provider value={{ 
+            callData, 
+            updateCallData, 
+            assignments, 
+            updateAssignments,
+            reset: () => {
+                setCallData(initialCallData);
+                setAssignments({ asignaciones: {} });
+                localStorage.removeItem('callData');
+                localStorage.removeItem('assignments');
+            }
+        }}>
             {children}
         </DataContext.Provider>
     );
+}
+
+// Contexto del tema
+export const ThemeContext = createContext();
+
+// Proveedor del tema
+export function ThemeProvider({ children }) {
+    const [darkMode, setDarkMode] = useState(false);
+
+    const toggleTheme = () => {
+        setDarkMode(!darkMode);
+        document.documentElement.classList.toggle('dark');
+    };
+
+    const value = {
+        darkMode,
+        toggleTheme
+    };
+
+    return (
+        <ThemeContext.Provider value={value}>
+            {children}
+        </ThemeContext.Provider>
+    );
+}
+
+// Hook personalizado para usar el tema
+export function useTheme() {
+    return useContext(ThemeContext);
 }
 
 // Componente principal de la aplicación
@@ -193,73 +247,84 @@ function MainContent() {
     if (!user) {
         return <LoginForm />;
     }    return (
-        <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100">
+        <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-200">
             <div className="flex flex-col h-screen">
                 {/* Header */}
-                <header className="bg-white shadow-md">
-                    <div className="mx-auto max-w-7xl px-4 py-4">
-                        <div className="flex justify-between items-center">
-                            <div className="flex items-center">
-                                <Logo className="h-8 w-auto" />
-                                <h1 className="ml-3 text-xl font-semibold text-gray-900">Teleasistencia</h1>
+                <header className="bg-white dark:bg-gray-800 shadow-md">
+                    <div className="responsive-container">
+                        <div className="flex flex-col lg:flex-row justify-between items-center py-4 space-y-4 lg:space-y-0">
+                            <div className="flex items-center w-full lg:w-auto justify-between">
+                                <Logo />
+                                <button 
+                                    onClick={() => auth.signOut()}
+                                    className="lg:hidden px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors duration-150"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fillRule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 001 1h12a1 1 0 001-1V4a1 1 0 00-1-1H3zm11 4a1 1 0 11-2 0 1 1 0 012 0zm-8 0a1 1 0 11-2 0 1 1 0 012 0zm4 0a1 1 0 11-2 0 1 1 0 012 0z" clipRule="evenodd" />
+                                    </svg>
+                                </button>
                             </div>
-                            <nav className="flex space-x-1">
+                            
+                            <nav className="flex flex-wrap justify-center gap-2 w-full lg:w-auto overflow-x-auto">
                                 <button 
                                     onClick={() => setActiveTab('dashboard')}
-                                    className={`px-4 py-2 rounded-lg transition-colors duration-150 ${
+                                    className={`px-4 py-2 rounded-lg transition-colors duration-150 whitespace-nowrap ${
                                         activeTab === 'dashboard' 
-                                            ? 'bg-blue-500 text-white' 
-                                            : 'text-gray-600 hover:bg-gray-100'
+                                            ? 'bg-blue-500 text-white dark:bg-blue-600' 
+                                            : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
                                     }`}
                                 >
                                     Dashboard
                                 </button>
                                 <button 
                                     onClick={() => setActiveTab('llamadas')}
-                                    className={`px-4 py-2 rounded-lg transition-colors duration-150 ${
+                                    className={`px-4 py-2 rounded-lg transition-colors duration-150 whitespace-nowrap ${
                                         activeTab === 'llamadas' 
-                                            ? 'bg-blue-500 text-white' 
-                                            : 'text-gray-600 hover:bg-gray-100'
+                                            ? 'bg-blue-500 text-white dark:bg-blue-600' 
+                                            : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
                                     }`}
                                 >
                                     Registro de Llamadas
                                 </button>
                                 <button 
                                     onClick={() => setActiveTab('asignaciones')}
-                                    className={`px-4 py-2 rounded-lg transition-colors duration-150 ${
+                                    className={`px-4 py-2 rounded-lg transition-colors duration-150 whitespace-nowrap ${
                                         activeTab === 'asignaciones' 
-                                            ? 'bg-blue-500 text-white' 
-                                            : 'text-gray-600 hover:bg-gray-100'
-                                    }`}                                >
+                                            ? 'bg-blue-500 text-white dark:bg-blue-600' 
+                                            : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                                    }`}
+                                >
                                     Asignaciones
                                 </button>
                                 <button 
                                     onClick={() => setActiveTab('seguimiento')}
-                                    className={`px-4 py-2 rounded-lg transition-colors duration-150 ${
+                                    className={`px-4 py-2 rounded-lg transition-colors duration-150 whitespace-nowrap ${
                                         activeTab === 'seguimiento' 
-                                            ? 'bg-blue-500 text-white' 
-                                            : 'text-gray-600 hover:bg-gray-100'
+                                            ? 'bg-blue-500 text-white dark:bg-blue-600' 
+                                            : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
                                     }`}
                                 >
                                     Historial de Seguimientos
                                 </button>
                             </nav>
+                            
                             <button 
                                 onClick={() => auth.signOut()}
-                                className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors duration-150"
+                                className="hidden lg:block px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors duration-150"
                             >
                                 Cerrar Sesión
                             </button>
                         </div>
                     </div>
-                </header>
-
-                {/* Main content */}
-                <main className="flex-1 overflow-y-auto bg-gray-50">
-                    <div className="mx-auto max-w-7xl px-4 py-6">                        {activeTab === 'dashboard' && <Dashboard />}
-                        {activeTab === 'llamadas' && <CallDataAnalyzer />}
-                        {activeTab === 'asignaciones' && <AssignmentManager />}
-                        {activeTab === 'seguimiento' && <FollowUpHistory />}
+                </header>                {/* Main content */}
+                <main className="flex-1 overflow-y-auto bg-gray-50 dark:bg-gray-900 transition-colors duration-200">
+                    <div className="responsive-container py-6">
+                        <div className="w-full overflow-x-hidden">
+                            {activeTab === 'dashboard' && <Dashboard />}
+                            {activeTab === 'llamadas' && <CallDataAnalyzer />}
+                            {activeTab === 'asignaciones' && <AssignmentManager />}
+                            {activeTab === 'seguimiento' && <FollowUpHistory />}
+                        </div>
                     </div>
                 </main>
             </div>
@@ -270,11 +335,13 @@ function MainContent() {
 // Componente raíz de la aplicación
 function App() {
     return (
-        <AuthProvider>
-            <DataProvider>
-                <MainContent />
-            </DataProvider>
-        </AuthProvider>
+        <ThemeProvider>
+            <AuthProvider>
+                <DataProvider>
+                    <MainContent />
+                </DataProvider>
+            </AuthProvider>
+        </ThemeProvider>
     );
 }
 

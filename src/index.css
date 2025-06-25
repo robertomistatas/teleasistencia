@@ -2,22 +2,59 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Añadiendo ajustes globales */
+/* Ajustes globales y tema */
 :root {
-  text-size-adjust: 100%;
-  -webkit-text-size-adjust: 100%;
-  -moz-text-size-adjust: 100%;
-  -ms-text-size-adjust: 100%;
+  --background-light: #f3f4f6;
+  --background-dark: #111827;
+  --text-light: #111827;
+  --text-dark: #f3f4f6;
 }
 
 /* Estilos base */
 html {
   height: 100%;
   width: 100%;
+  font-size: 16px;
+}
+
+@media (max-width: 640px) {
+  html {
+    font-size: 14px;
+  }
 }
 
 body {
   margin: 0;
   min-height: 100%;
   width: 100%;
+  @apply bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-white transition-colors duration-200;
+}
+
+/* Estilos para scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-gray-100 dark:bg-gray-800;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-gray-400 dark:bg-gray-600 rounded-full;
+}
+
+/* Clases de utilidad */
+.responsive-container {
+  @apply w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+}
+
+.responsive-grid {
+  @apply grid gap-4 sm:gap-6 lg:gap-8;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+/* Transiciones suaves para el tema */
+* {
+  @apply transition-colors duration-200;
 }

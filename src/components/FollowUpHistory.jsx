@@ -1,343 +1,274 @@
-import React, { useState, useEffect, useContext, useMemo } from 'react';
+import React, { useState, useContext, useMemo } from 'react';
 import { DataContext } from '../App';
-import { ExclamationTriangleIcon, CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/outline';
+import { ExclamationTriangleIcon, CheckCircleIcon, XCircleIcon, FunnelIcon } from '@heroicons/react/24/outline';
+import { normalizeName } from '../utils/textUtils';
+import { getTeleoperadora } from '../utils/operadoraUtils';
 
 const STATUS = {
-    OK: 'ok',
-    WARNING: 'warning', // 15+ días
-    DANGER: 'danger'    // 30+ días
+    OK: 'ok',            // Al día con al menos 1 llamada exitosa en los últimos 15 días
+    WARNING: 'warning',  // Tiene llamadas pero no exitosas en los últimos 15 días
+    DANGER: 'danger'    // Sin llamadas o sin llamadas exitosas en los últimos 30 días
 };
 
-const StatusBadge = ({ status, days }) => {
-    const configs = {
-        [STATUS.OK]: {
-            className: 'bg-green-100 text-green-800 border-green-200',
-            icon: CheckCircleIcon,
-            text: 'Al día'
-        },
-        [STATUS.WARNING]: {
-            className: 'bg-yellow-100 text-yellow-800 border-yellow-200',
-            icon: ExclamationTriangleIcon,
-            text: 'Atención'
-        },
-        [STATUS.DANGER]: {
-            className: 'bg-red-100 text-red-800 border-red-200',
-            icon: XCircleIcon,
-            text: 'Urgente'
-        }
-    };
+// Función para calcular el estado de un beneficiario
+const getBeneficiaryStatus = (llamadas) => {
+    if (!llamadas || llamadas.length === 0) return STATUS.DANGER;
 
-    const config = configs[status];
-    const Icon = config.icon;
+    const now = new Date();
+    const llamadasOrdenadas = [...llamadas].sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+    const ultimaLlamada = llamadasOrdenadas[0];
+    const diasDesdeUltimaLlamada = Math.floor((now - new Date(ultimaLlamada.fecha)) / (1000 * 60 * 60 * 24));
 
-    return (
-        <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-sm font-medium ${config.className}`}>
-            <Icon className="h-4 w-4" />
-            <span>{config.text}</span>
-            <span className="ml-1">({days} días)</span>
-        </div>
+    // Buscar la última llamada exitosa
+    const ultimaLlamadaExitosa = llamadasOrdenadas.find(llamada => 
+        llamada.resultado?.toLowerCase().includes('exitoso')
     );
+
+    if (ultimaLlamadaExitosa) {
+        const diasDesdeUltimaExitosa = Math.floor((now - new Date(ultimaLlamadaExitosa.fecha)) / (1000 * 60 * 60 * 24));
+        if (diasDesdeUltimaExitosa <= 15) {
+            return STATUS.OK;
+        }
+    }
+
+    if (diasDesdeUltimaLlamada > 30) {
+        return STATUS.DANGER;
+    }
+
+    return STATUS.WARNING;
 };
 
-const BeneficiaryCard = ({ beneficiary, contacts }) => {
-    const parseDate = (dateStr) => {
-        if (!dateStr) return null;
-        try {
-            const [day, month, year] = dateStr.split('-').map(num => num.trim());
-            return new Date(year, month - 1, day);
-        } catch (error) {
-            console.error('Error parsing date:', dateStr, error);
-            return null;
-        }
-    };
-
-    const getDaysSince = (dateStr) => {
-        if (!dateStr) return 999;
-        const date = parseDate(dateStr);
-        if (!date) return 999;
-        return Math.floor((new Date() - date) / (1000 * 60 * 60 * 24));
-    };
-
-    // Encontrar el último contacto exitoso
-    const lastSuccessfulContact = contacts
-        .filter(c => c.exitoso)
-        .sort((a, b) => {
-            const dateA = parseDate(a.fecha);
-            const dateB = parseDate(b.fecha);
-            return (dateB || 0) - (dateA || 0);
-        })[0]?.fecha;
-
-    const daysSinceContact = getDaysSince(lastSuccessfulContact);
-
-    const status = daysSinceContact >= 30 ? STATUS.DANGER :
-                   daysSinceContact >= 15 ? STATUS.WARNING :
-                   STATUS.OK;
-
-    const statusClasses = {
-        [STATUS.OK]: 'border-green-200 hover:border-green-300',
-        [STATUS.WARNING]: 'border-yellow-200 hover:border-yellow-300',
-        [STATUS.DANGER]: 'border-red-200 hover:border-red-300'
-    };
-
-    // Obtener contactos de este mes
-    const thisMonth = new Date().getMonth();
-    const thisYear = new Date().getFullYear();
+// Función para obtener el número de llamadas exitosas en el mes actual
+const getLlamadasExitosasDelMes = (llamadas) => {
+    if (!llamadas || !Array.isArray(llamadas)) return 0;
     
-    const contactsThisMonth = contacts.filter(c => {
-        const date = parseDate(c.fecha);
-        return date && 
-               date.getMonth() === thisMonth &&
-               date.getFullYear() === thisYear;
-    });
+    const now = new Date();
+    const primerDiaMes = new Date(now.getFullYear(), now.getMonth(), 1);
+    
+    return llamadas.filter(llamada => {
+        const fechaLlamada = new Date(llamada.fecha);
+        return fechaLlamada >= primerDiaMes && 
+               fechaLlamada <= now && 
+               llamada.resultado?.toLowerCase().includes('exitoso');
+    }).length;
+};
 
-    const successfulContactsThisMonth = contactsThisMonth.filter(c => c.exitoso).length;
-
+// Tarjeta de beneficiario
+const BeneficiaryCard = ({ 
+    beneficiary = 'Sin nombre', 
+    status = STATUS.DANGER, 
+    comuna = 'Sin comuna registrada', 
+    llamadasExitosas = [], 
+    totalLlamadas = 0, 
+    llamadasExitosasDelMes = 0,
+    ultimaLlamada
+}) => {
     return (
-        <div className={`bg-white rounded-lg shadow-sm border-2 ${statusClasses[status]} transition-colors duration-150`}>
-            <div className="flex justify-between items-start mb-3 p-4">
-                <h3 className="font-semibold text-gray-900 text-lg">{beneficiary}</h3>
-                <StatusBadge status={status} days={daysSinceContact} />
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 space-y-4">
+            <div className="flex justify-between items-start">
+                <div className="space-y-1">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                        {beneficiary}
+                    </h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                        {comuna}
+                    </p>
+                </div>
+                <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${
+                    status === STATUS.OK ? 'bg-green-100 text-green-800' :
+                    status === STATUS.WARNING ? 'bg-yellow-100 text-yellow-800' :
+                    'bg-red-100 text-red-800'
+                }`}>
+                    {status === STATUS.OK ? 'Al día' : status === STATUS.WARNING ? 'Pendiente' : 'Urgente'}
+                </span>
             </div>
-            
-            <div className="space-y-2 text-sm text-gray-600 p-4 bg-gray-50 rounded-b-lg">
-                <div className="flex justify-between items-center border-b border-gray-200 pb-2">
-                    <span>Contactos este mes:</span>
-                    <div className="text-right">
-                        <span className="font-medium">{contactsThisMonth.length}</span>
-                        <span className="text-green-600 ml-2">
-                            ({successfulContactsThisMonth} exitosos)
-                        </span>
+            <div className="space-y-2">
+                <p className="text-sm text-gray-600 dark:text-gray-300">
+                    Total llamadas: {totalLlamadas}
+                </p>
+                <p className="text-sm text-gray-600 dark:text-gray-300">
+                    Llamadas exitosas este mes: {llamadasExitosasDelMes}
+                </p>
+                {ultimaLlamada && (
+                    <p className="text-sm text-gray-600 dark:text-gray-300">
+                        Última llamada: {ultimaLlamada}
+                    </p>
+                )}
+                {llamadasExitosas && llamadasExitosas.length > 0 && (
+                    <div className="space-y-1">
+                        <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                            Últimas llamadas exitosas:
+                        </p>
+                        {llamadasExitosas.slice(-3).reverse().map((fecha, index) => (
+                            <div key={`${fecha}-${index}`} className="text-xs text-gray-500 dark:text-gray-400">
+                                {fecha}
+                            </div>
+                        ))}
                     </div>
-                </div>
-                <div className="flex justify-between items-center">
-                    <span>Último contacto exitoso:</span>
-                    <span className={`font-medium ${!lastSuccessfulContact ? 'text-red-500' : ''}`}>
-                        {lastSuccessfulContact ? 
-                            parseDate(lastSuccessfulContact).toLocaleDateString() :
-                            'Sin contactos exitosos'}
-                    </span>
-                </div>
+                )}
             </div>
         </div>
     );
 };
-
-const FilterTabs = ({ activeFilter, onFilterChange, counts }) => (
-    <div className="flex space-x-2 mb-6">
-        <button
-            onClick={() => onFilterChange('all')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-150
-                ${activeFilter === 'all' 
-                    ? 'bg-gray-900 text-white' 
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-        >
-            Todos ({counts.all})
-        </button>
-        <button
-            onClick={() => onFilterChange('urgent')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-150
-                ${activeFilter === 'urgent' 
-                    ? 'bg-red-600 text-white' 
-                    : 'bg-red-50 text-red-600 hover:bg-red-100'}`}
-        >
-            Urgentes ({counts.urgent})
-        </button>
-        <button
-            onClick={() => onFilterChange('warning')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-150
-                ${activeFilter === 'warning' 
-                    ? 'bg-yellow-500 text-white' 
-                    : 'bg-yellow-50 text-yellow-600 hover:bg-yellow-100'}`}
-        >
-            Pendientes ({counts.warning})
-        </button>
-        <button
-            onClick={() => onFilterChange('ok')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-150
-                ${activeFilter === 'ok' 
-                    ? 'bg-green-600 text-white' 
-                    : 'bg-green-50 text-green-600 hover:bg-green-100'}`}
-        >
-            Al día ({counts.ok})
-        </button>
-    </div>
-);
-
-const SearchBar = ({ value, onChange }) => (
-    <div className="relative mb-6">
-        <input
-            type="text"
-            value={value}
-            onChange={e => onChange(e.target.value)}
-            placeholder="Buscar beneficiario..."
-            className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-150"
-        />
-    </div>
-);
 
 function FollowUpHistory() {
-    const { callData } = useContext(DataContext);
-    const [followUpData, setFollowUpData] = useState([]);
+    const { callData, assignments } = useContext(DataContext);
     const [activeFilter, setActiveFilter] = useState('all');
-    const [searchQuery, setSearchQuery] = useState('');
+    const [searchTerm, setSearchTerm] = useState('');
+    const [selectedComuna, setSelectedComuna] = useState('all');
 
-    // Función para parsear fechas en formato DD-MM-YYYY
-    const parseDate = (dateStr) => {
-        if (!dateStr) return null;
-        try {
-            const [day, month, year] = dateStr.split('-').map(num => num.trim());
-            return new Date(year, month - 1, day);
-        } catch (error) {
-            console.error('Error parsing date:', dateStr, error);
-            return null;
+    // Procesar datos de beneficiarios
+    const beneficiaryData = useMemo(() => {
+        if (!callData?.llamadasPorBeneficiario) {
+            console.log('No hay datos de beneficiarios');
+            return [];
         }
-    };
 
-    // Función para calcular días desde una fecha
-    const getDaysSince = (dateStr) => {
-        if (!dateStr) return 999;
-        const date = parseDate(dateStr);
-        if (!date) return 999;
-        return Math.floor((new Date() - date) / (1000 * 60 * 60 * 24));
-    };
+        return Object.entries(callData.llamadasPorBeneficiario).map(([beneficiario, datos]) => {
+            const llamadas = datos.llamadas || [];
+            const status = getBeneficiaryStatus(llamadas);
+            const comuna = llamadas[0]?.comuna || 'Sin comuna';
+            const llamadasExitosas = llamadas.filter(ll => ll.resultado?.toLowerCase().includes('exitoso'));
+            const ultimaLlamada = llamadas.length > 0 
+                ? new Date(Math.max(...llamadas.map(ll => new Date(ll.fecha)))).toLocaleDateString()
+                : null;
 
-    useEffect(() => {
-        if (!callData?.detallesLlamadas) return;
-
-        // Agrupar llamadas por beneficiario
-        const beneficiaryContacts = callData.detallesLlamadas.reduce((acc, call) => {
-            if (!acc[call.beneficiario]) {
-                acc[call.beneficiario] = [];
-            }
-            
-            const exitoso = call.resultado?.toLowerCase().includes('exitoso') || false;
-            acc[call.beneficiario].push({
-                fecha: call.fecha,
-                tipo: call.evento,
-                duracion: call.segundos,
-                resultado: call.resultado,
-                exitoso: exitoso
-            });
-            return acc;
-        }, {});
-
-        // Convertir a array y ordenar por último contacto exitoso
-        const followUpArray = Object.entries(beneficiaryContacts)
-            .map(([beneficiary, contacts]) => {
-                // Encontrar el último contacto exitoso
-                const lastSuccessfulContact = contacts
-                    .filter(c => c.exitoso)
-                    .sort((a, b) => {
-                        const dateA = parseDate(a.fecha);
-                        const dateB = parseDate(b.fecha);
-                        return (dateB || 0) - (dateA || 0);
-                    })[0];
-                
-                // Ordenar todos los contactos por fecha
-                const sortedContacts = contacts.sort((a, b) => {
-                    const dateA = parseDate(a.fecha);
-                    const dateB = parseDate(b.fecha);
-                    return (dateB || 0) - (dateA || 0);
-                });
-                
-                return {
-                    beneficiary,
-                    contacts: sortedContacts,
-                    lastSuccessfulContact: lastSuccessfulContact?.fecha || null
-                };
-            })
-            .sort((a, b) => {
-                // Ordenar por fecha del último contacto exitoso
-                const daysA = getDaysSince(a.lastSuccessfulContact);
-                const daysB = getDaysSince(b.lastSuccessfulContact);
-                return daysB - daysA;
-            });
-
-        console.log('Follow-up data processed:', followUpArray);
-        setFollowUpData(followUpArray);
-    }, [callData]);
-
-    const filteredData = useMemo(() => {
-        return followUpData.filter(item => {
-            // Aplicar búsqueda
-            if (searchQuery && !item.beneficiary.toLowerCase().includes(searchQuery.toLowerCase())) {
-                return false;
-            }
-
-            const lastContact = item.contacts[0]?.fecha;
-            if (!lastContact) return activeFilter === 'urgent' || activeFilter === 'all';
-
-            const days = Math.floor((new Date() - new Date(lastContact)) / (1000 * 60 * 60 * 24));
-
-            switch (activeFilter) {
-                case 'urgent':
-                    return days >= 30;
-                case 'warning':
-                    return days >= 15 && days < 30;
-                case 'ok':
-                    return days < 15;
-                default:
-                    return true;
-            }
+            return {
+                beneficiario,
+                status,
+                comuna,
+                llamadasExitosas: llamadasExitosas.map(ll => new Date(ll.fecha).toLocaleDateString()),
+                totalLlamadas: llamadas.length,
+                llamadasExitosasDelMes: getLlamadasExitosasDelMes(llamadas),
+                ultimaLlamada
+            };
         });
-    }, [followUpData, activeFilter, searchQuery]);
+    }, [callData?.llamadasPorBeneficiario]);
 
-    const counts = useMemo(() => {
-        return followUpData.reduce((acc, item) => {
-            const lastContact = item.contacts[0]?.fecha;
-            const days = lastContact 
-                ? Math.floor((new Date() - new Date(lastContact)) / (1000 * 60 * 60 * 24))
-                : 999;
+    // Filtrar beneficiarios
+    const filteredBeneficiaries = useMemo(() => {
+        return beneficiaryData.filter(b => {
+            const matchesSearch = b.beneficiario.toLowerCase().includes(searchTerm.toLowerCase());
+            const matchesComuna = selectedComuna === 'all' || b.comuna === selectedComuna;
+            const matchesFilter = activeFilter === 'all' || 
+                                (activeFilter === 'uptodate' && b.status === STATUS.OK) ||
+                                (activeFilter === 'urgent' && b.status === STATUS.DANGER) ||
+                                (activeFilter === 'warning' && b.status === STATUS.WARNING);
+            
+            return matchesSearch && matchesComuna && matchesFilter;
+        });
+    }, [beneficiaryData, searchTerm, selectedComuna, activeFilter]);
 
-            acc.all++;
-            if (days >= 30) acc.urgent++;
-            else if (days >= 15) acc.warning++;
-            else acc.ok++;
+    // Obtener comunas únicas
+    const comunas = useMemo(() => {
+        const uniqueComunas = new Set(beneficiaryData.map(b => b.comuna));
+        return Array.from(uniqueComunas).sort();
+    }, [beneficiaryData]);
 
-            return acc;
-        }, { all: 0, urgent: 0, warning: 0, ok: 0 });
-    }, [followUpData]);
+    // Contar beneficiarios por estado
+    const counts = useMemo(() => ({
+        total: beneficiaryData.length,
+        uptodate: beneficiaryData.filter(b => b.status === STATUS.OK).length,
+        urgentes: beneficiaryData.filter(b => b.status === STATUS.DANGER).length,
+        pendientes: beneficiaryData.filter(b => b.status === STATUS.WARNING).length
+    }), [beneficiaryData]);
+
+    const StatusCounter = ({ label, count, className }) => (
+        <div className={`flex flex-col items-center p-4 rounded-lg shadow-md ${className}`}>
+            <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">{label}</span>
+            <span className="text-2xl font-bold text-gray-900 dark:text-white">{count}</span>
+        </div>
+    );
 
     return (
-        <div className="p-6 max-w-7xl mx-auto">
-            <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-bold text-gray-900">Historial de Seguimientos</h2>
-                <div className="text-sm text-gray-500">
-                    Total: {followUpData.length} beneficiarios
+        <div className="p-6 space-y-6">
+            {/* Filtros */}
+            <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+                <div className="flex items-center gap-2">
+                    <FunnelIcon className="h-5 w-5 text-gray-500 dark:text-gray-400" />
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Filtros:</span>
+                </div>
+                
+                {/* Selector de Comuna */}
+                <div className="flex-1">
+                    <select
+                        value={selectedComuna}
+                        onChange={(e) => setSelectedComuna(e.target.value)}
+                        className="block w-full rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm focus:border-blue-500 focus:ring-blue-500 dark:text-gray-200"
+                    >
+                        {comunas.map(comuna => (
+                            <option key={comuna} value={comuna}>
+                                {comuna === 'todas' ? 'Todas las comunas' : comuna}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+
+                {/* Selector de Estado */}
+                <div className="flex-1">
+                    <select
+                        value={activeFilter}
+                        onChange={(e) => setActiveFilter(e.target.value)}
+                        className="block w-full rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm focus:border-blue-500 focus:ring-blue-500 dark:text-gray-200"
+                    >
+                        <option value="all">Todos los estados</option>
+                        <option value={STATUS.OK}>Al día</option>
+                        <option value={STATUS.WARNING}>Atención</option>
+                        <option value={STATUS.DANGER}>Urgentes</option>
+                    </select>
+                </div>
+
+                {/* Buscador */}
+                <div className="flex-1">
+                    <input
+                        type="text"
+                        placeholder="Buscar beneficiario..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="block w-full rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm focus:border-blue-500 focus:ring-blue-500 dark:text-gray-200"
+                    />
                 </div>
             </div>
 
-            <FilterTabs 
-                activeFilter={activeFilter} 
-                onFilterChange={setActiveFilter}
-                counts={counts}
-            />
+            {/* Contadores */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <StatusCounter
+                    label="Todos"
+                    count={counts.total}
+                    className="bg-gray-100 dark:bg-gray-700"
+                />
+                <StatusCounter
+                    label="Al día"
+                    count={counts.uptodate}
+                    className="bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-100"
+                />
+                <StatusCounter
+                    label="Urgentes"
+                    count={counts.urgentes}
+                    className="bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-100"
+                />
+                <StatusCounter
+                    label="Pendientes"
+                    count={counts.pendientes}
+                    className="bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-100"
+                />
+            </div>
 
-            <SearchBar 
-                value={searchQuery}
-                onChange={setSearchQuery}
-            />
-
+            {/* Lista de Beneficiarios */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredData.map(({ beneficiary, contacts, lastSuccessfulContact }) => (
+                {filteredBeneficiaries.map((b) => (
                     <BeneficiaryCard
-                        key={beneficiary}
-                        beneficiary={beneficiary}
-                        contacts={contacts}
-                        lastSuccessfulContact={lastSuccessfulContact}
+                        key={b.id}
+                        beneficiary={b.beneficiario}
+                        status={b.status}
+                        comuna={b.comuna}
+                        llamadasExitosas={b.llamadasExitosas}
+                        totalLlamadas={b.totalLlamadas}
+                        llamadasExitosasDelMes={b.llamadasExitosasDelMes}
+                        ultimaLlamada={b.ultimaLlamada}
                     />
                 ))}
             </div>
-
-            {filteredData.length === 0 && (
-                <div className="text-center py-12">
-                    <p className="text-gray-500">
-                        {searchQuery 
-                            ? 'No se encontraron beneficiarios que coincidan con la búsqueda'
-                            : 'No hay beneficiarios en esta categoría'}
-                    </p>
-                </div>
-            )}
         </div>
     );
 }

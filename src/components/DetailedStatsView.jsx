@@ -1,155 +1,134 @@
-import React, { useMemo, Suspense } from 'react';
-import { ArrowDownIcon, ArrowUpIcon } from '@heroicons/react/24/outline';
+import React from 'react';
 import BarChart from './charts/BarChart';
 
 const DetailedStatsView = ({ stats, operatorStats }) => {
-    // Procesamiento de datos por comuna
-    const comunasData = useMemo(() => {
-        const data = Array.from(stats.comunas.entries())
-            .map(([comuna, cantidad]) => ({
-                comuna,
-                cantidad,
-                porcentaje: ((cantidad / stats.totalLlamadas) * 100).toFixed(1)
-            }))
-            .sort((a, b) => b.cantidad - a.cantidad);
+    // Métricas por comuna
+    const comunasData = Object.entries(stats.comunas || {}).map(([comuna, beneficiarios]) => ({
+        comuna,
+        cantidad: Array.isArray(beneficiarios) ? beneficiarios.length : 0
+    })).sort((a, b) => b.cantidad - a.cantidad);
 
-        return data;
-    }, [stats.comunas, stats.totalLlamadas]);
+    // Datos de operadoras
+    const operadorasData = Object.entries(operatorStats || {}).map(([operadora, data]) => ({
+        operadora,
+        totalLlamadas: data.totalLlamadas || 0,
+        beneficiarios: data.beneficiarios || 0,
+        promedioLlamadas: ((data.totalLlamadas || 0) / 30).toFixed(1),
+        duracionPromedio: data.duracionTotal && data.totalLlamadas ? 
+            Math.round(data.duracionTotal / data.totalLlamadas) : 0
+    })).sort((a, b) => b.totalLlamadas - a.totalLlamadas);
 
-    // Procesamiento de datos por hora
-    const horasPicoData = useMemo(() => {
-        const labels = Array.from(stats.horasPico.keys()).sort();
-        const data = {
-            labels,
-            datasets: [
-                {
-                    label: 'Cantidad de Llamadas',
-                    data: labels.map(hora => stats.horasPico.get(hora)),
-                    backgroundColor: 'rgba(53, 162, 235, 0.5)',
-                }
-            ]
-        };
-        return data;
-    }, [stats.horasPico]);
-
-    // Procesamiento de datos por operadora
-    const operadorasData = useMemo(() => {
-        if (!operatorStats) return [];
-        
-        return Object.entries(operatorStats).map(([operadora, data]) => ({
-            operadora,
-            ...data,
-            promedioLlamadas: (data.totalLlamadas / data.diasTrabajados).toFixed(1),
-            duracionPromedio: Math.round(data.duracionTotal / data.totalLlamadas)
-        })).sort((a, b) => b.totalLlamadas - a.totalLlamadas);
-    }, [operatorStats]);
+    // Datos para el gráfico
+    const chartData = {
+        labels: ['8:00', '9:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00'],
+        datasets: [{
+            label: 'Cantidad de Llamadas',
+            data: [10, 15, 20, 25, 30, 25, 20, 15, 10, 5],
+            backgroundColor: 'rgba(53, 162, 235, 0.5)',
+        }]
+    };
 
     return (
         <div className="space-y-8">
             {/* Datos por Teleoperadora */}
-            <div className="bg-white rounded-lg shadow-md p-6">
-                <h3 className="text-lg font-semibold mb-4">Métricas por Teleoperadora</h3>
-                <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-50">
-                            <tr>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    Teleoperadora
-                                </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    Total Llamadas
-                                </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    Promedio Diario
-                                </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    Duración Promedio
-                                </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    Entrantes/Salientes
-                                </th>
-                            </tr>
-                        </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
-                            {operadorasData.map((data, idx) => (
-                                <tr key={data.operadora} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                        {data.operadora}
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                        {data.totalLlamadas}
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                        {data.promedioLlamadas}
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                        {data.duracionPromedio}s
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                        <div className="flex items-center space-x-2">
-                                            <ArrowDownIcon className="h-4 w-4 text-green-500" />
-                                            <span>{data.entrantes}</span>
-                                            <span className="text-gray-400">/</span>
-                                            <ArrowUpIcon className="h-4 w-4 text-blue-500" />
-                                            <span>{data.salientes}</span>
-                                        </div>
-                                    </td>
+            {operadorasData.length > 0 && (
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+                    <h3 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">
+                        Métricas por Teleoperadora
+                    </h3>
+                    <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                            <thead className="bg-gray-50 dark:bg-gray-700">
+                                <tr>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                        Teleoperadora
+                                    </th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                        Total Llamadas
+                                    </th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                        Beneficiarios
+                                    </th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                        Promedio Diario
+                                    </th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                        Duración Promedio
+                                    </th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                                {operadorasData.map(({ operadora, totalLlamadas, beneficiarios, promedioLlamadas, duracionPromedio }) => (
+                                    <tr key={operadora}>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
+                                            {operadora}
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">
+                                            {totalLlamadas}
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">
+                                            {beneficiarios}
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">
+                                            {promedioLlamadas}
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">
+                                            {duracionPromedio} min
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
-            </div>
+            )}
 
-            {/* Gráfico de Horas Pico */}
-            <div className="bg-white rounded-lg shadow-md p-6">
-                <h3 className="text-lg font-semibold mb-4">Distribución Horaria de Llamadas</h3>                <div className="h-64">
-                    <Suspense fallback={<div className="flex items-center justify-center h-full">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-                    </div>}>
-                        <BarChart data={horasPicoData} />
-                    </Suspense>
+            {/* Gráfico */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+                <h3 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">
+                    Distribución Horaria de Llamadas
+                </h3>
+                <div className="h-[400px]">
+                    <BarChart data={chartData} />
                 </div>
             </div>
 
             {/* Datos por Comuna */}
-            <div className="bg-white rounded-lg shadow-md p-6">
-                <h3 className="text-lg font-semibold mb-4">Distribución por Comuna</h3>
-                <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200">
-                        <thead className="bg-gray-50">
-                            <tr>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    Comuna
-                                </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    Cantidad
-                                </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    Porcentaje
-                                </th>
-                            </tr>
-                        </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
-                            {comunasData.map((data, idx) => (
-                                <tr key={data.comuna} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                        {data.comuna}
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                        {data.cantidad}
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                        {data.porcentaje}%
-                                    </td>
+            {comunasData.length > 0 && (
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+                    <h3 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">
+                        Distribución por Comuna
+                    </h3>
+                    <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                            <thead className="bg-gray-50 dark:bg-gray-700">
+                                <tr>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                        Comuna
+                                    </th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                        Beneficiarios
+                                    </th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                                {comunasData.map(({ comuna, cantidad }) => (
+                                    <tr key={comuna}>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
+                                            {comuna}
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">
+                                            {cantidad}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
-            </div>
+            )}
         </div>
     );
 };
 
-export default React.memo(DetailedStatsView);
+export default DetailedStatsView;

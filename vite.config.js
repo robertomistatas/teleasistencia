@@ -8,23 +8,55 @@ export default defineConfig({
     outDir: 'dist',
     sourcemap: true,
     manifest: true,
+    minify: 'terser',
+    chunkSizeWarningLimit: 1000,
+    terserOptions: {
+      compress: {
+        drop_console: false,
+        drop_debugger: true
+      }
+    },
     rollupOptions: {
       input: {
-        main: './index.html',
+        main: './index.html'
       },
       output: {
         manualChunks: {
-          vendor: [
-            'react',
-            'react-dom',
+          react: ['react', 'react-dom'],
+          firebase: [
             'firebase/app',
             'firebase/auth',
             'firebase/firestore',
-            'firebase/analytics',
-            'xlsx'
+            'firebase/analytics'
+          ],
+          charts: ['recharts', 'chart.js', 'react-chartjs-2'],
+          xlsx: ['xlsx'],
+          utils: [
+            './src/utils/dateUtils.js',
+            './src/utils/statsUtils.js',
+            './src/utils/textUtils.js'
           ]
         }
       }
     }
+  },
+  server: {
+    port: 5173,
+    strictPort: true,
+    host: true,
+    open: true
+  },
+  preview: {
+    port: 4173,
+    strictPort: true,
+    host: true
+  },
+  resolve: {
+    alias: {
+      '@': '/src'
+    }
+  },
+  optimizeDeps: {
+    include: ['react', 'react-dom', 'recharts', 'firebase/app']
   }
 })
