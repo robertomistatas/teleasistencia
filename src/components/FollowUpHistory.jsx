@@ -55,16 +55,24 @@ const BeneficiaryCard = ({ beneficiary, contacts }) => {
         const date = parseDate(dateStr);
         if (!date) return 999;
         return Math.floor((new Date() - date) / (1000 * 60 * 60 * 24));
-    };
-
-    // Encontrar el último contacto exitoso
-    const lastSuccessfulContact = contacts
-        .filter(c => c.exitoso)
-        .sort((a, b) => {
-            const dateA = parseDate(a.fecha);
-            const dateB = parseDate(b.fecha);
-            return (dateB || 0) - (dateA || 0);
-        })[0]?.fecha;
+    };    // Encontrar el último contacto exitoso de manera optimizada
+    const lastSuccessfulContact = useMemo(() => {
+        let lastContact = null;
+        let lastDate = null;
+        
+        for (const contact of contacts) {
+            if (!contact.exitoso) continue;
+            const date = parseDate(contact.fecha);
+            if (!date) continue;
+            
+            if (!lastDate || date > lastDate) {
+                lastContact = contact;
+                lastDate = date;
+            }
+        }
+        
+        return lastContact?.fecha;
+    }, [contacts]);
 
     const daysSinceContact = getDaysSince(lastSuccessfulContact);
 

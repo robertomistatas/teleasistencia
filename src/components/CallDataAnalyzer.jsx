@@ -675,13 +675,16 @@ function CallDataAnalyzer() {
             )
         };
         return convertedStats;
-    };
-
-    // Función para guardar datos en Firebase
-    const saveCallData = async (stats, operatorStats, rawData) => {
+    };    // Función para guardar datos en Firebase con manejo mejorado de errores y retry
+    const saveCallData = async (stats, operatorStats, rawData, retryCount = 0) => {
         try {
             const docRef = doc(db, 'llamadas', crypto.randomUUID());
             const convertedStats = convertStatsForFirestore(stats);
+            
+            // Verificar datos antes de guardar
+            if (!convertedStats || !operatorStats) {
+                throw new Error('Datos inválidos para guardar');
+            }
             
             // Convertir las fechas del rawData a strings ISO
             const processedRawData = rawData.map(row => ({

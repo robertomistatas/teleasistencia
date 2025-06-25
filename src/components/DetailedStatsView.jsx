@@ -3,23 +3,45 @@ import { ArrowDownIcon, ArrowUpIcon } from '@heroicons/react/24/outline';
 import BarChart from './charts/BarChart';
 
 const DetailedStatsView = ({ stats, operatorStats }) => {
-    // Procesamiento de datos por comuna
-    const comunasData = useMemo(() => {
-        const data = Array.from(stats.comunas.entries())
-            .map(([comuna, cantidad]) => ({
-                comuna,
-                cantidad,
-                porcentaje: ((cantidad / stats.totalLlamadas) * 100).toFixed(1)
-            }))
-            .sort((a, b) => b.cantidad - a.cantidad);
+    // Validación de props y manejo de errores
+    if (!stats) {
+        return (
+            <div className="p-6 text-center">
+                <p className="text-gray-500">Cargando estadísticas...</p>
+            </div>
+        );
+    }
 
-        return data;
+    // Verificar estructura de datos necesaria
+    if (!stats.comunas || !stats.horasPico) {
+        return (
+            <div className="p-6 text-center">
+                <p className="text-gray-500">No hay datos suficientes para mostrar estadísticas detalladas</p>
+            </div>
+        );
+    }
+
+    // Procesamiento de datos por comuna con manejo de errores
+    const comunasData = useMemo(() => {
+        if (!stats || !stats.comunas) return [];
+        try {
+            return Array.from(stats.comunas.entries())
+                .map(([comuna, cantidad]) => ({
+                    comuna,
+                    cantidad,
+                    porcentaje: ((cantidad / stats.totalLlamadas) * 100).toFixed(1)
+                }))
+                .sort((a, b) => b.cantidad - a.cantidad);
+        } catch (error) {
+            console.error('Error procesando datos de comunas:', error);
+            return [];
+        }
     }, [stats.comunas, stats.totalLlamadas]);
 
     // Procesamiento de datos por hora
     const horasPicoData = useMemo(() => {
         const labels = Array.from(stats.horasPico.keys()).sort();
-        const data = {
+        return {
             labels,
             datasets: [
                 {
@@ -29,19 +51,20 @@ const DetailedStatsView = ({ stats, operatorStats }) => {
                 }
             ]
         };
-        return data;
     }, [stats.horasPico]);
 
     // Procesamiento de datos por operadora
     const operadorasData = useMemo(() => {
         if (!operatorStats) return [];
         
-        return Object.entries(operatorStats).map(([operadora, data]) => ({
-            operadora,
-            ...data,
-            promedioLlamadas: (data.totalLlamadas / data.diasTrabajados).toFixed(1),
-            duracionPromedio: Math.round(data.duracionTotal / data.totalLlamadas)
-        })).sort((a, b) => b.totalLlamadas - a.totalLlamadas);
+        return Object.entries(operatorStats)
+            .map(([operadora, data]) => ({
+                operadora,
+                ...data,
+                promedioLlamadas: (data.totalLlamadas / data.diasTrabajados).toFixed(1),
+                duracionPromedio: Math.round(data.duracionTotal / data.totalLlamadas)
+            }))
+            .sort((a, b) => b.totalLlamadas - a.totalLlamadas);
     }, [operatorStats]);
 
     return (
@@ -83,16 +106,10 @@ const DetailedStatsView = ({ stats, operatorStats }) => {
                                         {data.promedioLlamadas}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                        {data.duracionPromedio}s
+                                        {data.duracionPromedio} seg
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                        <div className="flex items-center space-x-2">
-                                            <ArrowDownIcon className="h-4 w-4 text-green-500" />
-                                            <span>{data.entrantes}</span>
-                                            <span className="text-gray-400">/</span>
-                                            <ArrowUpIcon className="h-4 w-4 text-blue-500" />
-                                            <span>{data.salientes}</span>
-                                        </div>
+                                        {data.entrantes}/{data.salientes}
                                     </td>
                                 </tr>
                             ))}
@@ -103,10 +120,9 @@ const DetailedStatsView = ({ stats, operatorStats }) => {
 
             {/* Gráfico de Horas Pico */}
             <div className="bg-white rounded-lg shadow-md p-6">
-                <h3 className="text-lg font-semibold mb-4">Distribución Horaria de Llamadas</h3>                <div className="h-64">
-                    <Suspense fallback={<div className="flex items-center justify-center h-full">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-                    </div>}>
+                <h3 className="text-lg font-semibold mb-4">Distribución por Hora</h3>
+                <div className="h-64">
+                    <Suspense fallback={<div>Cargando gráfico...</div>}>
                         <BarChart data={horasPicoData} />
                     </Suspense>
                 </div>

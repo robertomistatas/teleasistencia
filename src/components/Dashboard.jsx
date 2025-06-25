@@ -56,11 +56,18 @@ const Dashboard = () => {
         }
     });
 
-    // Calcular métricas
-    const beneficiariosAtendidos = callData.beneficiariosAtendidos?.size || 0;
+    // Calcular métricas    const beneficiariosAtendidos = callData?.beneficiariosAtendidos?.size || 0;
     const porcentajeCobertura = totalBeneficiarios > 0 
         ? Math.round((beneficiariosAtendidos / totalBeneficiarios) * 100)
         : 0;
+    
+    // Asegurar que rendimientoData siempre tenga valores válidos
+    const rendimientoDataValidado = rendimientoData.map(data => ({
+        ...data,
+        llamados: data.llamados || 0,
+        minutos: data.minutos || 0,
+        tiempoPromedio: data.tiempoPromedio || 0
+    }));
 
     return (
         <div className="space-y-6 p-6">
