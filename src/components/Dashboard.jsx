@@ -18,85 +18,10 @@ const StatCard = ({ title, value, subtitle, icon: Icon }) => (
 
 const Dashboard = () => {
     const { callData, assignments } = useContext(DataContext);
-    const [localCallData, setLocalCallData] = useState({
-        totalLlamados: 0,
-        tiempoTotal: 0,
-        beneficiariosAtendidos: new Set(),
-        rendimientoPorOperadora: {}
-    });
-    const [filters, setFilters] = useState({
-        fechaInicio: '',
-        fechaFin: '',
-        operadora: 'Todas las operadoras',
-        comuna: 'Todas las comunas',
-        tipo: 'Todos los tipos'
-    });
 
-    useEffect(() => {
-        const fetchData = async () => {
-            try {
-                // Obtener datos de llamadas
-                const llamadasQuery = query(collection(db, 'llamadas'));
-                const llamadasSnapshot = await getDocs(llamadasQuery);
-                
-                // Obtener datos de seguimientos
-                const seguimientosQuery = query(collection(db, 'seguimientos'));
-                const seguimientosSnapshot = await getDocs(seguimientosQuery);
-
-                const datos = {
-                    totalLlamados: 0,
-                    tiempoTotal: 0,
-                    beneficiariosAtendidos: new Set(),
-                    rendimientoPorOperadora: {}
-                };
-
-                // Procesar llamadas
-                llamadasSnapshot.forEach(doc => {
-                    const llamada = doc.data();
-                    datos.totalLlamados++;
-                    datos.tiempoTotal += llamada.duracion || 0;
-                    datos.beneficiariosAtendidos.add(llamada.beneficiario);
-
-                    if (llamada.operadora) {
-                        if (!datos.rendimientoPorOperadora[llamada.operadora]) {
-                            datos.rendimientoPorOperadora[llamada.operadora] = {
-                                llamados: 0,
-                                minutos: 0
-                            };
-                        }
-                        datos.rendimientoPorOperadora[llamada.operadora].llamados++;
-                        datos.rendimientoPorOperadora[llamada.operadora].minutos += llamada.duracion || 0;
-                    }
-                });
-
-                // Procesar seguimientos
-                seguimientosSnapshot.forEach(doc => {
-                    const seguimiento = doc.data();
-                    datos.totalLlamados++;
-                    datos.beneficiariosAtendidos.add(seguimiento.beneficiario);
-
-                    if (seguimiento.operadora) {
-                        if (!datos.rendimientoPorOperadora[seguimiento.operadora]) {
-                            datos.rendimientoPorOperadora[seguimiento.operadora] = {
-                                llamados: 0,
-                                minutos: 0
-                            };
-                        }
-                        datos.rendimientoPorOperadora[seguimiento.operadora].llamados++;
-                    }
-                });
-
-                setLocalCallData(datos);
-            } catch (error) {
-                console.error('Error al cargar datos:', error);
-            }
-        };
-
-        fetchData();
-    }, []);    // Preparar datos para los gráficos y tabla
     const totalBeneficiarios = assignments?.beneficiarios?.length || 0;
-    const tiempoPromedioLlamada = localCallData.totalLlamados > 0 
-        ? Math.round((localCallData.tiempoTotal / localCallData.totalLlamados) * 10) / 10 
+    const tiempoPromedioLlamada = callData.stats?.totalLlamados > 0 
+        ? Math.round((callData.stats.duracionTotal / callData.stats.totalLlamados) * 10) / 10 
         : 0;
 
     // Asegurarse de que todas las operadoras asignadas aparezcan en la tabla
@@ -113,17 +38,33 @@ const Dashboard = () => {
     });
 
     // Calcular métricas
-    const beneficiariosAtendidos = callData.beneficiariosAtendidos?.size || 0;
+    const beneficiariosAtendidos = callData.stats?.beneficiarios.size || 0;
     const porcentajeCobertura = totalBeneficiarios > 0 
         ? Math.round((beneficiariosAtendidos / totalBeneficiarios) * 100)
         : 0;    // Preparar datos para visualización
-    const rendimientoData = Object.entries(localCallData.rendimientoPorOperadora).map(([operadora, datos]) => ({
+    const rendimientoData = Object.entries(callData.stats?.teleoperadoras || {}).map(([operadora, datos]) => ({
         name: operadora,
         llamados: datos.llamados,
         minutos: datos.minutos,
         tiempoPromedio: datos.llamados > 0 ? Math.round((datos.minutos / datos.llamados) * 10) / 10 : 0,
-        porcentajeTotal: Math.round((datos.llamados / localCallData.totalLlamados) * 100) || 0
+        porcentajeTotal: Math.round((datos.llamados / callData.stats.totalLlamados) * 100) || 0
     }));
+
+    // Asegurar que filters siempre tenga un valor predeterminado
+    const defaultFilters = {
+        fechaInicio: '',
+        fechaFin: '',
+        operadora: '',
+        comuna: '',
+        tipo: '',
+    };
+    const [filters, setFilters] = useState(defaultFilters);
+
+    // Validar que filters esté definido antes de usarlo
+    if (!filters) {
+        console.error('El estado filters no está definido.');
+        return <div>Error: Filtros no están disponibles.</div>;
+    }
 
     return (
         <div className="space-y-6 p-6 dark:bg-gray-900">
@@ -136,22 +77,22 @@ const Dashboard = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                 <StatCard
                     title="Total de Llamados"
-                    value={localCallData.totalLlamados}
+                    value={callData.stats?.totalLlamados || 0}
                     subtitle="Llamadas registradas"
                 />
                 <StatCard
                     title="Tiempo Total (min)"
-                    value={Math.round(localCallData.tiempoTotal)}
+                    value={callData.stats?.duracionTotal || 0}
                     subtitle={`Promedio: ${tiempoPromedioLlamada} min/llamada`}
                 />
                 <StatCard
                     title="Cobertura"
-                    value={`${Math.round((localCallData.beneficiariosAtendidos.size / totalBeneficiarios) * 100)}%`}
-                    subtitle={`${localCallData.beneficiariosAtendidos.size} de ${totalBeneficiarios} beneficiarios`}
+                    value={`${Math.round((callData.stats?.beneficiarios.size / totalBeneficiarios) * 100) || 0}%`}
+                    subtitle={`${callData.stats?.beneficiarios.size || 0} de ${totalBeneficiarios} beneficiarios`}
                 />
                 <StatCard
                     title="Operadoras Activas"
-                    value={Object.keys(localCallData.rendimientoPorOperadora).length}
+                    value={Object.keys(callData.stats?.teleoperadoras || {}).length || 0}
                     subtitle="Teleoperadoras en servicio"
                 />
             </div>

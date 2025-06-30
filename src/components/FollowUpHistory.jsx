@@ -116,6 +116,7 @@ function FollowUpHistory() {
     const [activeFilter, setActiveFilter] = useState('all');
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedComuna, setSelectedComuna] = useState('all');
+    const [dateRange, setDateRange] = useState({ start: '', end: '' });
 
     // Procesar datos de beneficiarios
     const beneficiaryData = useMemo(() => {
@@ -140,7 +141,8 @@ function FollowUpHistory() {
                 llamadasExitosas: llamadasExitosas.map(ll => new Date(ll.fecha).toLocaleDateString()),
                 totalLlamadas: llamadas.length,
                 llamadasExitosasDelMes: getLlamadasExitosasDelMes(llamadas),
-                ultimaLlamada
+                ultimaLlamada,
+                llamadas
             };
         });
     }, [callData?.llamadasPorBeneficiario]);
@@ -154,10 +156,17 @@ function FollowUpHistory() {
                                 (activeFilter === 'uptodate' && b.status === STATUS.OK) ||
                                 (activeFilter === 'urgent' && b.status === STATUS.DANGER) ||
                                 (activeFilter === 'warning' && b.status === STATUS.WARNING);
-            
-            return matchesSearch && matchesComuna && matchesFilter;
+
+            const matchesDateRange = dateRange.start && dateRange.end
+                ? b.llamadas.some(ll => {
+                    const callDate = new Date(ll.fecha);
+                    return callDate >= new Date(dateRange.start) && callDate <= new Date(dateRange.end);
+                })
+                : true;
+
+            return matchesSearch && matchesComuna && matchesFilter && matchesDateRange;
         });
-    }, [beneficiaryData, searchTerm, selectedComuna, activeFilter]);
+    }, [beneficiaryData, searchTerm, selectedComuna, activeFilter, dateRange]);
 
     // Obtener comunas únicas
     const comunas = useMemo(() => {
@@ -196,10 +205,9 @@ function FollowUpHistory() {
                         onChange={(e) => setSelectedComuna(e.target.value)}
                         className="block w-full rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm focus:border-blue-500 focus:ring-blue-500 dark:text-gray-200"
                     >
+                        <option value="all">Todas las comunas</option>
                         {comunas.map(comuna => (
-                            <option key={comuna} value={comuna}>
-                                {comuna === 'todas' ? 'Todas las comunas' : comuna}
-                            </option>
+                            <option key={comuna} value={comuna}>{comuna}</option>
                         ))}
                     </select>
                 </div>
@@ -212,9 +220,9 @@ function FollowUpHistory() {
                         className="block w-full rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm focus:border-blue-500 focus:ring-blue-500 dark:text-gray-200"
                     >
                         <option value="all">Todos los estados</option>
-                        <option value={STATUS.OK}>Al día</option>
-                        <option value={STATUS.WARNING}>Atención</option>
-                        <option value={STATUS.DANGER}>Urgentes</option>
+                        <option value="uptodate">Al día</option>
+                        <option value="warning">Atención</option>
+                        <option value="urgent">Urgentes</option>
                     </select>
                 </div>
 
@@ -226,6 +234,22 @@ function FollowUpHistory() {
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                         className="block w-full rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm focus:border-blue-500 focus:ring-blue-500 dark:text-gray-200"
+                    />
+                </div>
+
+                {/* Selector de Rango de Fechas */}
+                <div className="flex-1">
+                    <input
+                        type="date"
+                        value={dateRange.start}
+                        onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
+                        className="block w-full rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm focus:border-blue-500 focus:ring-blue-500 dark:text-gray-200"
+                    />
+                    <input
+                        type="date"
+                        value={dateRange.end}
+                        onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
+                        className="block w-full rounded-md border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm focus:border-blue-500 focus:ring-blue-500 dark:text-gray-200 mt-2"
                     />
                 </div>
             </div>

@@ -1,7 +1,7 @@
 {
   "name": "teleasistencia",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "homepage": "https://robertomistatas.github.io/teleasistencia/",
   "scripts": {

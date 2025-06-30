@@ -21,7 +21,8 @@ import {
     query,
     where,
     Timestamp,
-    writeBatch
+    writeBatch,
+    getDoc
 } from 'firebase/firestore';
 import { getAnalytics } from 'firebase/analytics';
 import CallDataAnalyzer from './components/CallDataAnalyzer';
