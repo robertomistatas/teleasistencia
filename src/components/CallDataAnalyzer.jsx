@@ -63,6 +63,8 @@ function CallDataAnalyzer() {
     
     // Referencia al estado inicial para reseteo
     const initialStatsRef = useRef(createInitialStats());
+    // Referencia para evitar actualizaciones cíclicas
+    const previousStatsRef = useRef(null);
 
     // Limpiar timeouts al desmontar
     useEffect(() => {
@@ -158,7 +160,7 @@ function CallDataAnalyzer() {
                                 if (!beneficiario || !fecha) return;
 
                                 const normalizedNombre = normalizeName(beneficiario);
-                                const fechaObj = new Date(fecha); // La fecha ya viene en formato YYYY-MM-DD
+                                const fechaObj = excelDateToISO(fecha); // Convertir fecha de Excel a ISO usando utilidades
                                 const teleoperadora = getTeleoperadora(telefono, normalizedNombre, assignments);
                                 const exitoso = resultado?.toString().toLowerCase().includes('exitoso');
                                 const duracionMinutos = Math.round(parseInt(duracion || 0) / 60); // Convertir segundos a minutos
@@ -308,15 +310,41 @@ function CallDataAnalyzer() {
     useEffect(() => {
         if (!stats || stats.totalLlamadas === 0) return;
 
-        try {            const serializedStats = prepareStatsForStorage(stats, assignments);
-            if (serializedStats) {
-                console.log('Actualizando contexto global con:', serializedStats);
-                localStorage.setItem('currentStats', JSON.stringify(serializedStats));
-                updateCallData(serializedStats);
-            }
-        } catch (error) {
-            console.error('Error serializing stats:', error);
+        // Comparar con el estado previo para evitar actualizaciones innecesarias
+        if (previousStatsRef.current && JSON.stringify(previousStatsRef.current) === JSON.stringify(stats)) {
+            return;
         }
+
+        previousStatsRef.current = stats;
+
+        // Actualizar el contexto global con las métricas calculadas
+        const operatorStats = {};
+
+        stats.beneficiarios.forEach((beneficiario) => {
+            const teleoperadora = getTeleoperadora(null, beneficiario, assignments);
+            if (!teleoperadora) return;
+
+            if (!operatorStats[teleoperadora]) {
+                operatorStats[teleoperadora] = {
+                    totalLlamadas: 0,
+                    beneficiarios: [],
+                    duracionTotal: 0,
+                };
+            }
+
+            operatorStats[teleoperadora].totalLlamadas += stats.llamadasPorBeneficiario[beneficiario]?.length || 0;
+            operatorStats[teleoperadora].duracionTotal += stats.llamadasPorBeneficiario[beneficiario]?.reduce((acc, llamada) => acc + llamada.duracion, 0) || 0;
+
+            if (!operatorStats[teleoperadora].beneficiarios.includes(beneficiario)) {
+                operatorStats[teleoperadora].beneficiarios.push(beneficiario);
+            }
+        });
+
+        updateCallData({
+            ...callData,
+            stats,
+            operatorStats,
+        });
     }, [stats, updateCallData, assignments]);
 
     return (

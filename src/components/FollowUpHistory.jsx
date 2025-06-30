@@ -256,9 +256,9 @@ function FollowUpHistory() {
 
             {/* Lista de Beneficiarios */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredBeneficiaries.map((b) => (
+                {filteredBeneficiaries.map((b, index) => (
                     <BeneficiaryCard
-                        key={b.id}
+                        key={`${b.beneficiario}-${index}`}
                         beneficiary={b.beneficiario}
                         status={b.status}
                         comuna={b.comuna}

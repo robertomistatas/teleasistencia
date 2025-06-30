@@ -59,23 +59,38 @@ const DetailedStatsView = ({ stats, operatorStats }) => {
                             </thead>
                             <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                                 {operadorasData.map(({ operadora, totalLlamadas, beneficiarios, promedioLlamadas, duracionPromedio }) => (
-                                    <tr key={operadora}>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                                            {operadora}
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">
-                                            {totalLlamadas}
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">
-                                            {beneficiarios}
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">
-                                            {promedioLlamadas}
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">
-                                            {duracionPromedio} min
-                                        </td>
-                                    </tr>
+                                    <React.Fragment key={operadora}>
+                                        <tr>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
+                                                {operadora}
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">
+                                                {totalLlamadas}
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">
+                                                {Array.isArray(beneficiarios) ? beneficiarios.length : beneficiarios}
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">
+                                                {promedioLlamadas}
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">
+                                                {duracionPromedio} min
+                                            </td>
+                                        </tr>
+                                        {Array.isArray(beneficiarios) && beneficiarios.length > 0 && (
+                                            <tr>
+                                                <td colSpan="5" className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300">
+                                                    <ul className="list-disc pl-8">
+                                                        {beneficiarios.map((beneficiario, index) => (
+                                                            <li key={`${operadora}-${index}`} className="text-gray-700 dark:text-gray-300">
+                                                                {beneficiario}
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </React.Fragment>
                                 ))}
                             </tbody>
                         </table>
