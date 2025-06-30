@@ -25,6 +25,7 @@ import {
 import ErrorBoundary from './ErrorBoundary';
 import StatsDisplay from './StatsDisplay';
 import DetailedStatsView from './DetailedStatsView';
+import { doc, setDoc, getDoc } from 'firebase/firestore';
 
 // Constantes para el manejo del archivo
 const CHUNK_SIZE = 1000;  // Procesar 1000 filas a la vez
@@ -75,16 +76,29 @@ function CallDataAnalyzer() {
         };
     }, []);
 
-    // Cargar datos guardados al montar el componente
+    // Cargar datos guardados desde Firestore al montar el componente
     useEffect(() => {
-        if (!callData) return;
-        try {
-            const parsedStats = parseStoredStats(callData);
-            setStats(parsedStats);
-        } catch (error) {
-            console.error('Error loading saved data:', error);
-            setStats(initialStatsRef.current);
-        }
+        const fetchData = async () => {
+            if (!callData) {
+                try {
+                    const docRef = doc(db, 'callData', 'stats');
+                    const docSnap = await getDoc(docRef);
+
+                    if (docSnap.exists()) {
+                        const parsedStats = parseStoredStats(docSnap.data());
+                        setStats(parsedStats);
+                    } else {
+                        console.log('No data found in Firestore, initializing stats.');
+                        setStats(initialStatsRef.current);
+                    }
+                } catch (error) {
+                    console.error('Error loading data from Firestore:', error);
+                    setStats(initialStatsRef.current);
+                }
+            }
+        };
+
+        fetchData();
     }, [callData]);
 
     // Función para procesar el archivo
@@ -295,18 +309,7 @@ function CallDataAnalyzer() {
         setError(null);
     }, []);
 
-    const resetState = useCallback(() => {
-        setFile(null);
-        setStats(initialStatsRef.current);
-        setProgress(0);
-        setError(null);
-        setLoading(false);
-        if (fileInputRef.current) {
-            fileInputRef.current.value = '';
-        }
-    }, []);
-
-    // Efecto para sincronizar con el contexto global
+    // Efecto para sincronizar datos con Firestore
     useEffect(() => {
         if (!stats || stats.totalLlamadas === 0) return;
 
@@ -316,6 +319,18 @@ function CallDataAnalyzer() {
         }
 
         previousStatsRef.current = stats;
+
+        const saveDataToFirestore = async () => {
+            try {
+                const docRef = doc(db, 'callData', 'stats');
+                await setDoc(docRef, prepareStatsForStorage(stats));
+                console.log('Data successfully saved to Firestore.');
+            } catch (error) {
+                console.error('Error saving data to Firestore:', error);
+            }
+        };
+
+        saveDataToFirestore();
 
         // Actualizar el contexto global con las métricas calculadas
         const operatorStats = {};
@@ -346,6 +361,31 @@ function CallDataAnalyzer() {
             operatorStats,
         });
     }, [stats, updateCallData, assignments]);
+
+    const resetState = useCallback(() => {
+        setFile(null);
+        setStats(initialStatsRef.current);
+        setProgress(0);
+        setError(null);
+        setLoading(false);
+        if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+        }
+
+        const clearFirestoreData = async () => {
+            try {
+                const docRef = doc(db, 'callData', 'stats');
+                await setDoc(docRef, {});
+                console.log('Data successfully cleared from Firestore.');
+            } catch (error) {
+                console.error('Error clearing data from Firestore:', error);
+            }
+        };
+
+        clearFirestoreData();
+
+        updateCallData(initialStatsRef.current);
+    }, []);
 
     return (
         <ErrorBoundary>

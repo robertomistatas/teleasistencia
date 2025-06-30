@@ -130,15 +130,27 @@ export function DataProvider({ children }) {
         }
     });
 
+    useEffect(() => {
+        // Cargar datos desde localStorage al iniciar
+        try {
+            const savedCallData = localStorage.getItem('callData');
+            if (savedCallData) {
+                setCallData(JSON.parse(savedCallData));
+            }
+        } catch (error) {
+            console.error('Error al cargar datos desde localStorage:', error);
+        }
+    }, []);
+
     // Guardar datos en localStorage cuando cambien
     useEffect(() => {
+        // Guardar datos en localStorage cuando cambien
         try {
             if (callData && Object.keys(callData).length > 0) {
-                console.log('Guardando datos en localStorage:', callData);
                 localStorage.setItem('callData', JSON.stringify(callData));
             }
         } catch (error) {
-            console.error('Error guardando datos:', error);
+            console.error('Error guardando datos en localStorage:', error);
         }
     }, [callData]);
 
@@ -152,6 +164,39 @@ export function DataProvider({ children }) {
             console.error('Error guardando asignaciones:', error);
         }
     }, [assignments]);
+
+    useEffect(() => {
+        // Cargar datos desde Firestore al iniciar
+        const fetchData = async () => {
+            try {
+                const docRef = doc(db, 'callData', 'latest');
+                const docSnap = await getDoc(docRef);
+                if (docSnap.exists()) {
+                    setCallData(docSnap.data());
+                } else {
+                    console.log('No se encontraron datos en Firestore');
+                }
+            } catch (error) {
+                console.error('Error al cargar datos desde Firestore:', error);
+            }
+        };
+        fetchData();
+    }, []);
+
+    useEffect(() => {
+        // Guardar datos en Firestore cuando cambien
+        const saveData = async () => {
+            try {
+                if (callData && Object.keys(callData).length > 0) {
+                    const docRef = doc(db, 'callData', 'latest');
+                    await setDoc(docRef, callData);
+                }
+            } catch (error) {
+                console.error('Error guardando datos en Firestore:', error);
+            }
+        };
+        saveData();
+    }, [callData]);
 
     // Función para actualizar datos
     const updateCallData = useCallback((newData) => {
@@ -316,7 +361,12 @@ function MainContent() {
                             </button>
                         </div>
                     </div>
-                </header>                {/* Main content */}
+                </header>
+                {/* Version marker */}
+                <div className="absolute top-4 right-4 text-sm text-gray-500 dark:text-gray-400">
+                    Ver. 1.0.0
+                </div>
+                {/* Main content */}
                 <main className="flex-1 overflow-y-auto bg-gray-50 dark:bg-gray-900 transition-colors duration-200">
                     <div className="responsive-container py-6">
                         <div className="w-full overflow-x-hidden">
@@ -327,6 +377,10 @@ function MainContent() {
                         </div>
                     </div>
                 </main>
+                {/* Footer */}
+                <footer className="bg-gray-100 dark:bg-gray-800 text-center py-4">
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Ver. 1.0.0</p>
+                </footer>
             </div>
         </div>
     );
