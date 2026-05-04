@@ -5,5 +5,9 @@ import type { FollowupStatus } from '@/lib/types'
 export function StatusBadge({ status }: { status: FollowupStatus }) {
   const meta = followupStatusMeta[status]
 
-  return <Badge tone={meta.tone}>{meta.label}</Badge>
+  return (
+    <Badge tone={meta.tone} className={meta.badgeClass}>
+      {meta.label}
+    </Badge>
+  )
 }

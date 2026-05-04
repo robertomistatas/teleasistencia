@@ -15,6 +15,8 @@ export type PortfolioItem = {
   followupStatus: FollowupStatus
   lastValidFollowupAt: string | null
   daysSinceLastValidFollowup: number | null
+  lastInteractionAt: string | null
+  lastInteractionLabel: string | null
   startsAt: string
 }
 
@@ -53,23 +55,53 @@ export type ManualFollowupInput = {
 
 export const followupStatusMeta: Record<
   FollowupStatus,
-  { label: string; tone: 'danger' | 'warning' | 'success' | 'muted' }
+  {
+    label: string
+    tone: 'danger' | 'warning' | 'success' | 'muted'
+    badgeClass: string
+    panelClass: string
+    accentClass: string
+  }
 > = {
-  urgent: { label: 'Urgente', tone: 'danger' },
-  pending: { label: 'Pendiente', tone: 'warning' },
-  up_to_date: { label: 'Al dia', tone: 'success' },
-  no_data: { label: 'Sin datos', tone: 'muted' },
+  urgent: {
+    label: 'Urgente',
+    tone: 'danger',
+    badgeClass: 'border-rose-300 bg-rose-600 text-white',
+    panelClass: 'border-rose-200 bg-rose-50/90',
+    accentClass: 'bg-rose-600',
+  },
+  pending: {
+    label: 'Pendiente',
+    tone: 'warning',
+    badgeClass: 'border-amber-300 bg-amber-100 text-amber-950',
+    panelClass: 'border-amber-200 bg-amber-50/90',
+    accentClass: 'bg-amber-400',
+  },
+  up_to_date: {
+    label: 'Al dia',
+    tone: 'success',
+    badgeClass: 'border-emerald-300 bg-emerald-600 text-white',
+    panelClass: 'border-emerald-200 bg-emerald-50/90',
+    accentClass: 'bg-emerald-600',
+  },
+  no_data: {
+    label: 'Sin datos',
+    tone: 'muted',
+    badgeClass: 'border-slate-300 bg-slate-200 text-slate-700',
+    panelClass: 'border-slate-200 bg-slate-100/90',
+    accentClass: 'bg-slate-400',
+  },
 }
 
 export const followupEventLabels: Record<FollowupEventType, string> = {
-  contact_beneficiary: 'Contacto beneficiario',
-  contact_support_network: 'Contacto red apoyo',
-  no_answer: 'No contesta',
-  phone_off: 'Numero apagado',
-  wrong_number: 'Numero equivocado',
+  contact_beneficiary: 'Hable con el beneficiario',
+  contact_support_network: 'Hable con red de apoyo',
+  no_answer: 'No contesto',
+  phone_off: 'Telefono apagado',
+  wrong_number: 'Numero incorrecto',
   requests_help: 'Solicita ayuda',
-  support_referral: 'Derivacion soporte',
-  internal_note: 'Nota interna',
+  support_referral: 'Derivado a soporte',
+  internal_note: 'Solo registro interno',
 }
 
 export const validFollowupEventTypes = new Set<FollowupEventType>([
@@ -84,6 +116,11 @@ export const supportEventTypes = new Set<FollowupEventType>([
 ])
 
 const followupStatusOrder: FollowupStatus[] = ['urgent', 'pending', 'no_data', 'up_to_date']
+
+type LatestInteraction = {
+  at: string | null
+  label: string | null
+}
 
 function assertSupabase() {
   if (!supabase) {
@@ -113,6 +150,70 @@ function buildBeneficiaryName(raw: {
   }
 
   return [raw.first_name, raw.last_name].filter(Boolean).join(' ').trim() || 'Beneficiario sin nombre'
+}
+
+function getStatusRank(status: FollowupStatus) {
+  return followupStatusOrder.indexOf(status)
+}
+
+function getComparableTimestamp(value: string | null | undefined) {
+  if (!value) {
+    return Number.NEGATIVE_INFINITY
+  }
+
+  const timestamp = new Date(value).getTime()
+  return Number.isNaN(timestamp) ? Number.NEGATIVE_INFINITY : timestamp
+}
+
+function buildLatestInteractionMap(
+  calls: Array<{
+    beneficiary_id: string | null
+    started_at: string | null
+    call_date: string | null
+    amaia_result_raw: string | null
+  }>,
+  followups: Array<{
+    beneficiary_id: string | null
+    occurred_at: string | null
+    event_type: FollowupEventType
+  }>,
+) {
+  const latestMap = new Map<string, LatestInteraction>()
+
+  for (const call of calls) {
+    if (!call.beneficiary_id) {
+      continue
+    }
+
+    const interactionAt = call.started_at ?? call.call_date
+    const nextTimestamp = getComparableTimestamp(interactionAt)
+    const previousTimestamp = getComparableTimestamp(latestMap.get(call.beneficiary_id)?.at)
+
+    if (nextTimestamp > previousTimestamp) {
+      latestMap.set(call.beneficiary_id, {
+        at: interactionAt,
+        label: call.amaia_result_raw?.trim() || 'Interaccion telefonica',
+      })
+    }
+  }
+
+  for (const followup of followups) {
+    if (!followup.beneficiary_id) {
+      continue
+    }
+
+    const nextTimestamp = getComparableTimestamp(followup.occurred_at)
+    const previousTimestamp = getComparableTimestamp(latestMap.get(followup.beneficiary_id)?.at)
+
+    if (nextTimestamp > previousTimestamp) {
+      latestMap.set(followup.beneficiary_id, {
+        at: followup.occurred_at,
+        label: followupEventLabels[followup.event_type],
+      })
+    }
+  }
+
+  return latestMap
 }
 
 export async function fetchTeleoperatorPortfolio(userId: string) {
@@ -149,6 +250,42 @@ export async function fetchTeleoperatorPortfolio(userId: string) {
     throw error
   }
 
+  const beneficiaryIds = ((data as Array<Record<string, unknown>>) ?? []).map((row) =>
+    String(row.beneficiary_id),
+  )
+
+  let latestInteractionMap = new Map<string, LatestInteraction>()
+
+  if (beneficiaryIds.length > 0) {
+    const [callsResponse, followupsResponse] = await Promise.all([
+      client
+        .from('call_interactions')
+        .select('beneficiary_id, started_at, call_date, amaia_result_raw')
+        .in('beneficiary_id', beneficiaryIds),
+      client
+        .from('followup_events')
+        .select('beneficiary_id, occurred_at, event_type')
+        .in('beneficiary_id', beneficiaryIds),
+    ])
+
+    if (callsResponse.error) {
+      throw callsResponse.error
+    }
+
+    if (followupsResponse.error) {
+      throw followupsResponse.error
+    }
+
+    latestInteractionMap = buildLatestInteractionMap(
+      callsResponse.data ?? [],
+      (followupsResponse.data ?? []) as Array<{
+        beneficiary_id: string | null
+        occurred_at: string | null
+        event_type: FollowupEventType
+      }>,
+    )
+  }
+
   const items = ((data as Array<Record<string, unknown>>) ?? []).map((row) => {
     const beneficiaryRaw = pickSingle(row.beneficiary as Record<string, unknown> | Record<string, unknown>[] | null)
     const statusRaw = beneficiaryRaw
@@ -161,6 +298,7 @@ export async function fetchTeleoperatorPortfolio(userId: string) {
       : null
 
     const followupStatus = (statusRaw?.status as FollowupStatus | undefined) ?? 'no_data'
+    const latestInteraction = latestInteractionMap.get(String(row.beneficiary_id))
 
     return {
       assignmentId: String(row.id),
@@ -177,14 +315,30 @@ export async function fetchTeleoperatorPortfolio(userId: string) {
       lastValidFollowupAt: (statusRaw?.last_valid_followup_at as string | null) ?? null,
       daysSinceLastValidFollowup:
         (statusRaw?.days_since_last_valid_followup as number | null) ?? null,
+      lastInteractionAt: latestInteraction?.at ?? null,
+      lastInteractionLabel: latestInteraction?.label ?? null,
       startsAt: String(row.starts_at),
     } satisfies PortfolioItem
   })
 
   return items.sort(
-    (left, right) =>
-      followupStatusOrder.indexOf(left.followupStatus) -
-      followupStatusOrder.indexOf(right.followupStatus),
+    (left, right) => {
+      const statusDelta = getStatusRank(left.followupStatus) - getStatusRank(right.followupStatus)
+
+      if (statusDelta !== 0) {
+        return statusDelta
+      }
+
+      const interactionDelta =
+        getComparableTimestamp(right.lastInteractionAt) -
+        getComparableTimestamp(left.lastInteractionAt)
+
+      if (interactionDelta !== 0) {
+        return interactionDelta
+      }
+
+      return getComparableTimestamp(right.startsAt) - getComparableTimestamp(left.startsAt)
+    },
   )
 }
 

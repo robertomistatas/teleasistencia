@@ -18,14 +18,22 @@ export function BeneficiaryDetailPage() {
   const userId = user?.id
   const [data, setData] = useState<TeleoperatorBeneficiaryDetail | null>(null)
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const loadDetail = useCallback(async () => {
+  const loadDetail = useCallback(async (options?: { preserveData?: boolean }) => {
     if (!beneficiaryId || !userId) {
       return
     }
 
-    setLoading(true)
+    const preserveData = options?.preserveData === true
+
+    if (preserveData) {
+      setRefreshing(true)
+    } else {
+      setLoading(true)
+    }
+
     setError(null)
 
     try {
@@ -34,7 +42,11 @@ export function BeneficiaryDetailPage() {
     } catch (error) {
       setError(error instanceof Error ? error.message : 'No fue posible cargar la ficha.')
     } finally {
-      setLoading(false)
+      if (preserveData) {
+        setRefreshing(false)
+      } else {
+        setLoading(false)
+      }
     }
   }, [beneficiaryId, userId])
 
@@ -80,6 +92,12 @@ export function BeneficiaryDetailPage() {
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1.15fr)_420px]">
       <div className="space-y-5">
+        {refreshing && (
+          <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-medium text-sky-700">
+            Actualizando ficha con el seguimiento recien guardado...
+          </div>
+        )}
+
         <Panel className="p-6 sm:p-7">
           <div className="flex flex-col gap-4 border-b border-slate-100 pb-6 lg:flex-row lg:items-start lg:justify-between">
             <div>
@@ -293,7 +311,7 @@ export function BeneficiaryDetailPage() {
       </div>
 
       <div className="space-y-5">
-        <FollowupForm beneficiary={data} onSaved={loadDetail} />
+        <FollowupForm beneficiary={data} onSaved={() => loadDetail({ preserveData: true })} />
       </div>
     </div>
   )

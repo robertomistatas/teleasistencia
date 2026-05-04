@@ -4,8 +4,12 @@ import { Link } from 'react-router-dom'
 import { Badge, PageState, Panel, primaryButtonClass } from '@/components/ui'
 import { useAuth } from '@/features/auth/use-auth'
 import { StatusBadge } from '@/features/teleoperadora/components/status-badge'
-import { fetchTeleoperatorPortfolio, type PortfolioItem } from '@/features/teleoperadora/data'
-import { formatRelativeFollowupDays } from '@/lib/format'
+import {
+  fetchTeleoperatorPortfolio,
+  followupStatusMeta,
+  type PortfolioItem,
+} from '@/features/teleoperadora/data'
+import { formatDateTime, formatRelativeFollowupDays } from '@/lib/format'
 
 export function TeleoperatorHomePage() {
   const { user } = useAuth()
@@ -56,7 +60,7 @@ export function TeleoperatorHomePage() {
   const urgent = items.filter((item) => item.followupStatus === 'urgent')
   const pending = items.filter((item) => item.followupStatus === 'pending')
   const noData = items.filter((item) => item.followupStatus === 'no_data')
-  const topCases = [...urgent, ...pending, ...noData].slice(0, 4)
+  const topCases = items.slice(0, 4)
 
   return (
     <div className="space-y-5">
@@ -120,19 +124,37 @@ export function TeleoperatorHomePage() {
           )}
 
           {topCases.map((item) => (
-            <article key={item.assignmentId} className="rounded-[24px] border border-slate-200 bg-white p-5">
+            <article
+              key={item.assignmentId}
+              className={`relative overflow-hidden rounded-[24px] border p-5 ${followupStatusMeta[item.followupStatus].panelClass}`}
+            >
+              <div className={`absolute inset-y-0 left-0 w-2 ${followupStatusMeta[item.followupStatus].accentClass}`} />
               <div className="flex items-center justify-between gap-3">
-                <h4 className="text-lg font-semibold tracking-tight text-slate-950">
+                <h4 className="pl-2 text-lg font-semibold tracking-tight text-slate-950">
                   {item.beneficiary.fullName}
                 </h4>
                 <StatusBadge status={item.followupStatus} />
               </div>
-              <p className="mt-2 text-sm text-slate-600">
+              <p className="mt-2 pl-2 text-sm text-slate-600">
                 {item.beneficiary.commune || 'Comuna sin dato'}
               </p>
-              <p className="mt-4 text-sm text-slate-500">
-                {formatRelativeFollowupDays(item.daysSinceLastValidFollowup)}
-              </p>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-[20px] bg-white/80 px-4 py-3">
+                  <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Dias sin contacto</p>
+                  <p className="mt-2 text-base font-semibold text-slate-900">
+                    {formatRelativeFollowupDays(item.daysSinceLastValidFollowup)}
+                  </p>
+                </div>
+                <div className="rounded-[20px] bg-white/80 px-4 py-3">
+                  <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Ultima interaccion</p>
+                  <p className="mt-2 text-base font-semibold text-slate-900">
+                    {item.lastInteractionAt ? formatDateTime(item.lastInteractionAt) : 'Sin dato'}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {item.lastInteractionLabel || 'Sin interacciones visibles'}
+                  </p>
+                </div>
+              </div>
               <Link
                 to={`/teleoperadora/beneficiarios/${item.beneficiaryId}`}
                 className={`mt-4 ${primaryButtonClass}`}

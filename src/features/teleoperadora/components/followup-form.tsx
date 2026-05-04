@@ -51,7 +51,7 @@ export function FollowupForm({ beneficiary, onSaved }: FollowupFormProps) {
     event.preventDefault()
 
     if (!selectedType) {
-      setError('Selecciona un tipo de evento para registrar el seguimiento manual.')
+      setError('Selecciona un resultado de la llamada para registrar el seguimiento.')
       return
     }
 
@@ -77,7 +77,7 @@ export function FollowupForm({ beneficiary, onSaved }: FollowupFormProps) {
 
     try {
       await createManualFollowupEvent(payload)
-      setSuccess('Seguimiento guardado en followup_events.')
+      setSuccess('Seguimiento registrado correctamente')
       setSelectedType(null)
       setSelectedContactId('')
       setNotes('')
@@ -100,20 +100,17 @@ export function FollowupForm({ beneficiary, onSaved }: FollowupFormProps) {
         </div>
         <div className="flex flex-wrap gap-2">
           <Badge tone={derivedFlags.isValidFollowup ? 'success' : 'muted'}>
-            {derivedFlags.isValidFollowup ? 'Seguimiento valido' : 'Sin seguimiento valido'}
+            {derivedFlags.isValidFollowup ? 'Contacto valido' : 'Sin contacto valido'}
           </Badge>
           <Badge tone={derivedFlags.requiresSupport ? 'warning' : 'muted'}>
-            {derivedFlags.requiresSupport ? 'Requiere soporte' : 'Sin derivacion'}
+            {derivedFlags.requiresSupport ? 'Requiere soporte' : 'Sin acciones adicionales'}
           </Badge>
         </div>
       </div>
 
       <form className="mt-6 space-y-6" onSubmit={handleSubmit}>
         <div>
-          <p className="text-sm font-medium text-slate-700">Tipo de evento</p>
-          <p className="mt-1 text-sm text-slate-500">
-            La tabla followup_events admite un solo event_type por registro, por eso el formulario deja una seleccion activa aunque se exprese con checkboxes.
-          </p>
+          <p className="text-sm font-medium text-slate-700">Resultado de la llamada</p>
           <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             {followupOptions.map((option) => {
               const isActive = selectedType === option
@@ -144,7 +141,7 @@ export function FollowupForm({ beneficiary, onSaved }: FollowupFormProps) {
         </div>
 
         <label className="block">
-          <span className="text-sm font-medium text-slate-700">Telefono usado</span>
+          <span className="text-sm font-medium text-slate-700">Numero al que llame / que llamo</span>
           <select
             className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-900 outline-none transition focus:border-amber-400 focus:ring-4 focus:ring-amber-100"
             value={selectedContactId}
@@ -165,12 +162,13 @@ export function FollowupForm({ beneficiary, onSaved }: FollowupFormProps) {
             className="mt-2 min-h-32 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-900 outline-none transition focus:border-amber-400 focus:ring-4 focus:ring-amber-100"
             value={notes}
             onChange={(event) => setNotes(event.target.value)}
-            placeholder="Contexto de la gestion, acuerdos, observaciones o derivacion interna."
+            placeholder="Escribe lo ocurrido en la llamada (opcional)"
           />
         </label>
 
         {(error || success) && (
           <div
+            aria-live="polite"
             className={[
               'rounded-2xl px-4 py-3 text-sm',
               error

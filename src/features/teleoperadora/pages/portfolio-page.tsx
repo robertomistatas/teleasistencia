@@ -67,6 +67,8 @@ export function PortfolioPage() {
     })
   }, [filter, items, searchTerm])
 
+  const orderedStatuses = ['urgent', 'pending', 'no_data', 'up_to_date'] as const
+
   if (loading) {
     return (
       <PageState
@@ -128,13 +130,13 @@ export function PortfolioPage() {
       </Panel>
 
       <section className="grid gap-4 md:grid-cols-2 2xl:grid-cols-4">
-        {(['urgent', 'pending', 'up_to_date', 'no_data'] as const).map((status) => {
+        {orderedStatuses.map((status) => {
           const total = items.filter((item) => item.followupStatus === status).length
           const meta = followupStatusMeta[status]
 
           return (
-            <Panel key={status} className="p-5">
-              <Badge tone={meta.tone}>{meta.label}</Badge>
+            <Panel key={status} className={`p-5 ${meta.panelClass}`}>
+              <Badge tone={meta.tone} className={meta.badgeClass}>{meta.label}</Badge>
               <p className="mt-4 text-3xl font-semibold tracking-tight text-slate-950">{total}</p>
               <p className="mt-2 text-sm text-slate-600">Beneficiarios en este estado</p>
             </Panel>
@@ -152,10 +154,14 @@ export function PortfolioPage() {
           </div>
         )}
 
-        {filteredItems.map((item) => (
-          <Panel key={item.assignmentId} className="flex flex-col gap-5 p-6">
+        {filteredItems.map((item) => {
+          const meta = followupStatusMeta[item.followupStatus]
+
+          return (
+          <Panel key={item.assignmentId} className={`relative overflow-hidden flex flex-col gap-5 p-6 ${meta.panelClass}`}>
+            <div className={`absolute inset-y-0 left-0 w-2 ${meta.accentClass}`} />
             <div className="flex items-start justify-between gap-4">
-              <div>
+              <div className="pl-2">
                 <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Beneficiario</p>
                 <h3 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
                   {item.beneficiary.fullName}
@@ -168,19 +174,20 @@ export function PortfolioPage() {
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3">
-              <div className="rounded-[22px] bg-slate-50 px-4 py-3">
-                <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Dias</p>
+              <div className="rounded-[22px] bg-white/80 px-4 py-3">
+                <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Dias sin contacto</p>
                 <p className="mt-2 text-base font-semibold text-slate-900">
                   {formatRelativeFollowupDays(item.daysSinceLastValidFollowup)}
                 </p>
               </div>
-              <div className="rounded-[22px] bg-slate-50 px-4 py-3">
-                <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Ultimo contacto</p>
+              <div className="rounded-[22px] bg-white/80 px-4 py-3">
+                <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Ultima interaccion</p>
                 <p className="mt-2 text-base font-semibold text-slate-900">
-                  {item.lastValidFollowupAt ? formatDateTime(item.lastValidFollowupAt) : 'Sin dato'}
+                  {item.lastInteractionAt ? formatDateTime(item.lastInteractionAt) : 'Sin dato'}
                 </p>
+                <p className="mt-1 text-xs text-slate-500">{item.lastInteractionLabel || 'Sin interacciones visibles'}</p>
               </div>
-              <div className="rounded-[22px] bg-slate-50 px-4 py-3">
+              <div className="rounded-[22px] bg-white/80 px-4 py-3">
                 <p className="text-xs uppercase tracking-[0.16em] text-slate-500">RUT</p>
                 <p className="mt-2 text-base font-semibold text-slate-900">
                   {item.beneficiary.rutRaw || 'Sin dato'}
@@ -188,7 +195,7 @@ export function PortfolioPage() {
               </div>
             </div>
 
-            <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center justify-between gap-4 pl-2">
               <p className="text-sm text-slate-500">
                 Asignacion activa desde {formatDateTime(item.startsAt)}
               </p>
@@ -200,7 +207,7 @@ export function PortfolioPage() {
               </Link>
             </div>
           </Panel>
-        ))}
+        )})}
       </section>
     </div>
   )
