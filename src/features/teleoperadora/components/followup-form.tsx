@@ -76,8 +76,12 @@ export function FollowupForm({ beneficiary, onSaved }: FollowupFormProps) {
     }
 
     try {
-      await createManualFollowupEvent(payload)
-      setSuccess('Seguimiento registrado correctamente')
+      const result = await createManualFollowupEvent(payload)
+      setSuccess(
+        result.recalculationWarning
+          ? `Seguimiento registrado correctamente. ${result.recalculationWarning}`
+          : 'Seguimiento registrado correctamente',
+      )
       setSelectedType(null)
       setSelectedContactId('')
       setNotes('')
@@ -100,10 +104,10 @@ export function FollowupForm({ beneficiary, onSaved }: FollowupFormProps) {
         </div>
         <div className="flex flex-wrap gap-2">
           <Badge tone={derivedFlags.isValidFollowup ? 'success' : 'muted'}>
-            {derivedFlags.isValidFollowup ? 'Contacto valido' : 'Sin contacto valido'}
+            {derivedFlags.isValidFollowup ? 'Contacto valido' : 'Selecciona resultado'}
           </Badge>
           <Badge tone={derivedFlags.requiresSupport ? 'warning' : 'muted'}>
-            {derivedFlags.requiresSupport ? 'Requiere soporte' : 'Sin acciones adicionales'}
+            {derivedFlags.requiresSupport ? 'Requiere soporte' : 'Sin derivacion seleccionada'}
           </Badge>
         </div>
       </div>

@@ -53,6 +53,10 @@ export type ManualFollowupInput = {
   notes: string | null
 }
 
+export type ManualFollowupResult = {
+  recalculationWarning: string | null
+}
+
 export const followupStatusMeta: Record<
   FollowupStatus,
   {
@@ -159,6 +163,12 @@ type DerivedCoverage = {
   daysSinceLastValidFollowup: number | null
 }
 
+type BackendCoverageRow = {
+  status?: FollowupStatus | null
+  last_valid_followup_at?: string | null
+  days_since_last_valid_followup?: number | null
+}
+
 function assertSupabase() {
   if (!supabase) {
     throw new Error('Supabase no esta configurado.')
@@ -187,6 +197,20 @@ function buildBeneficiaryName(raw: {
   }
 
   return [raw.first_name, raw.last_name].filter(Boolean).join(' ').trim() || 'Beneficiario sin nombre'
+}
+
+function pickBackendCoverage(value: BackendCoverageRow | BackendCoverageRow[] | null | undefined) {
+  const raw = pickSingle(value)
+
+  if (!raw?.status) {
+    return null
+  }
+
+  return {
+    status: raw.status,
+    lastValidFollowupAt: raw.last_valid_followup_at ?? null,
+    daysSinceLastValidFollowup: raw.days_since_last_valid_followup ?? null,
+  } satisfies DerivedCoverage
 }
 
 function getStatusRank(status: FollowupStatus) {
@@ -464,12 +488,21 @@ export async function fetchTeleoperatorPortfolio(userId: string) {
 
   const items = ((data as Array<Record<string, unknown>>) ?? []).map((row) => {
     const beneficiaryRaw = pickSingle(row.beneficiary as Record<string, unknown> | Record<string, unknown>[] | null)
+    const backendCoverage = beneficiaryRaw
+      ? pickBackendCoverage(
+          beneficiaryRaw.beneficiary_followup_status as
+            | BackendCoverageRow
+            | BackendCoverageRow[]
+            | null,
+        )
+      : null
     const latestInteraction = latestInteractionMap.get(String(row.beneficiary_id))
-    const derivedCoverage = coverageMap.get(String(row.beneficiary_id)) ?? {
+    const fallbackCoverage = coverageMap.get(String(row.beneficiary_id)) ?? {
       status: 'no_data',
       lastValidFollowupAt: null,
       daysSinceLastValidFollowup: null,
     }
+    const resolvedCoverage = backendCoverage ?? fallbackCoverage
 
     return {
       assignmentId: String(row.id),
@@ -482,9 +515,9 @@ export async function fetchTeleoperatorPortfolio(userId: string) {
         region: (beneficiaryRaw?.region as string | null) ?? null,
         status: ((beneficiaryRaw?.status as string | null) ?? 'active') as MinimalBeneficiary['status'],
       },
-      followupStatus: derivedCoverage.status,
-      lastValidFollowupAt: derivedCoverage.lastValidFollowupAt,
-      daysSinceLastValidFollowup: derivedCoverage.daysSinceLastValidFollowup,
+      followupStatus: resolvedCoverage.status,
+      lastValidFollowupAt: resolvedCoverage.lastValidFollowupAt,
+      daysSinceLastValidFollowup: resolvedCoverage.daysSinceLastValidFollowup,
       lastInteractionAt: latestInteraction?.at ?? null,
       lastInteractionLabel: latestInteraction?.label ?? null,
       startsAt: String(row.starts_at),
@@ -560,7 +593,7 @@ export async function fetchTeleoperatorBeneficiaryDetail(
       | null,
   )
 
-  const [contactsResponse, callsResponse, followupsResponse] = await Promise.all([
+  const [contactsResponse, callsResponse, followupsResponse, statusResponse] = await Promise.all([
     client
       .from('beneficiary_contacts')
       .select(
@@ -586,6 +619,11 @@ export async function fetchTeleoperatorBeneficiaryDetail(
       .eq('beneficiary_id', beneficiaryId)
       .order('occurred_at', { ascending: false })
       .limit(20),
+    client
+      .from('beneficiary_followup_status')
+      .select('status, last_valid_followup_at, days_since_last_valid_followup')
+      .eq('beneficiary_id', beneficiaryId)
+      .maybeSingle(),
   ])
 
   if (contactsResponse.error) {
@@ -600,6 +638,10 @@ export async function fetchTeleoperatorBeneficiaryDetail(
     throw followupsResponse.error
   }
 
+  if (statusResponse.error) {
+    throw statusResponse.error
+  }
+
   const derivedCoverage = deriveCoverageFromSources(
     (callsResponse.data ?? []) as Array<{
       duration_seconds?: number | null
@@ -611,6 +653,8 @@ export async function fetchTeleoperatorBeneficiaryDetail(
       occurred_at?: string | null
     }>,
   )
+  const backendCoverage = pickBackendCoverage(statusResponse.data as BackendCoverageRow | null)
+  const resolvedCoverage = backendCoverage ?? derivedCoverage
 
   return {
     assignmentId: String((assignment as Record<string, unknown>).id),
@@ -631,9 +675,9 @@ export async function fetchTeleoperatorBeneficiaryDetail(
       notes: ((assignment as Record<string, unknown>).notes as string | null) ?? null,
     },
     status: {
-      status: derivedCoverage.status,
-      lastValidFollowupAt: derivedCoverage.lastValidFollowupAt,
-      daysSinceLastValidFollowup: derivedCoverage.daysSinceLastValidFollowup,
+      status: resolvedCoverage.status,
+      lastValidFollowupAt: resolvedCoverage.lastValidFollowupAt,
+      daysSinceLastValidFollowup: resolvedCoverage.daysSinceLastValidFollowup,
     },
     contacts: (contactsResponse.data ?? []).map((contact) => ({
       id: contact.id,
@@ -678,7 +722,7 @@ export async function fetchTeleoperatorBeneficiaryDetail(
   } satisfies TeleoperatorBeneficiaryDetail
 }
 
-export async function createManualFollowupEvent(input: ManualFollowupInput) {
+export async function createManualFollowupEvent(input: ManualFollowupInput): Promise<ManualFollowupResult> {
   const client = assertSupabase()
   const { error } = await client.from('followup_events').insert({
     beneficiary_id: input.beneficiaryId,
@@ -695,5 +739,15 @@ export async function createManualFollowupEvent(input: ManualFollowupInput) {
 
   if (error) {
     throw error
+  }
+
+  const { error: rpcError } = await client.rpc('recalculate_beneficiary_followup_status', {
+    p_beneficiary_id: input.beneficiaryId,
+  })
+
+  return {
+    recalculationWarning: rpcError
+      ? 'El seguimiento se guardo, pero no fue posible recalcular el estado en este momento.'
+      : null,
   }
 }
