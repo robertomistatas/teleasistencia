@@ -104,6 +104,30 @@ export const followupEventLabels: Record<FollowupEventType, string> = {
   internal_note: 'Solo registro interno',
 }
 
+export const contactTypeLabels: Record<string, string> = {
+  primary_phone: 'Telefono principal',
+  support_network: 'Red de apoyo',
+  family_contact: 'Contacto familiar',
+  emergency_contact: 'Contacto emergencia',
+  app_phone: 'Telefono app',
+  sim_phone: 'SIM / dispositivo',
+  other: 'Otro contacto',
+}
+
+export const followupSourceLabels: Record<string, string> = {
+  manual: 'Registro manual',
+  amaia_call: 'Llamada AMAIA',
+  system: 'Sistema',
+}
+
+export function getContactTypeLabel(contactType: string) {
+  return contactTypeLabels[contactType] ?? contactType
+}
+
+export function getFollowupSourceLabel(source: string) {
+  return followupSourceLabels[source] ?? source
+}
+
 export const validFollowupEventTypes = new Set<FollowupEventType>([
   'contact_beneficiary',
   'contact_support_network',
@@ -116,10 +140,23 @@ export const supportEventTypes = new Set<FollowupEventType>([
 ])
 
 const followupStatusOrder: FollowupStatus[] = ['urgent', 'pending', 'no_data', 'up_to_date']
+const STATUS_UP_TO_DATE_MAX_DAYS = 15
+const STATUS_PENDING_MAX_DAYS = 30
+const MIN_VALID_CALL_DURATION_SECONDS = 10
+const validFollowupStatusEventTypes = new Set<FollowupEventType>([
+  'contact_beneficiary',
+  'contact_support_network',
+])
 
 type LatestInteraction = {
   at: string | null
   label: string | null
+}
+
+type DerivedCoverage = {
+  status: FollowupStatus
+  lastValidFollowupAt: string | null
+  daysSinceLastValidFollowup: number | null
 }
 
 function assertSupabase() {
@@ -165,12 +202,135 @@ function getComparableTimestamp(value: string | null | undefined) {
   return Number.isNaN(timestamp) ? Number.NEGATIVE_INFINITY : timestamp
 }
 
+function getDaysSince(value: string) {
+  const timestamp = new Date(value).getTime()
+
+  if (Number.isNaN(timestamp)) {
+    return null
+  }
+
+  const now = Date.now()
+  return Math.max(0, Math.floor((now - timestamp) / 86_400_000))
+}
+
+function isValidCallForCoverage(call: {
+  duration_seconds?: number | null
+  started_at?: string | null
+  call_date?: string | null
+}) {
+  return (
+    (call.duration_seconds ?? 0) >= MIN_VALID_CALL_DURATION_SECONDS &&
+    Boolean(call.started_at ?? call.call_date)
+  )
+}
+
+function isValidFollowupForCoverage(followup: {
+  event_type: FollowupEventType
+  occurred_at?: string | null
+}) {
+  return validFollowupStatusEventTypes.has(followup.event_type) && Boolean(followup.occurred_at)
+}
+
+function deriveCoverageFromSources(
+  calls: Array<{
+    duration_seconds?: number | null
+    started_at?: string | null
+    call_date?: string | null
+  }>,
+  followups: Array<{
+    event_type: FollowupEventType
+    occurred_at?: string | null
+  }>,
+): DerivedCoverage {
+  const latestValidCallAt = calls
+    .filter(isValidCallForCoverage)
+    .map((call) => call.started_at ?? call.call_date ?? null)
+    .sort((left, right) => getComparableTimestamp(right) - getComparableTimestamp(left))[0] ?? null
+
+  const latestValidFollowupAt = followups
+    .filter(isValidFollowupForCoverage)
+    .map((followup) => followup.occurred_at ?? null)
+    .sort((left, right) => getComparableTimestamp(right) - getComparableTimestamp(left))[0] ?? null
+
+  const lastValidFollowupAt =
+    getComparableTimestamp(latestValidCallAt) > getComparableTimestamp(latestValidFollowupAt)
+      ? latestValidCallAt
+      : latestValidFollowupAt
+
+  if (!lastValidFollowupAt) {
+    return {
+      status: 'no_data',
+      lastValidFollowupAt: null,
+      daysSinceLastValidFollowup: null,
+    }
+  }
+
+  const daysSinceLastValidFollowup = getDaysSince(lastValidFollowupAt)
+
+  if (daysSinceLastValidFollowup === null) {
+    return {
+      status: 'no_data',
+      lastValidFollowupAt: null,
+      daysSinceLastValidFollowup: null,
+    }
+  }
+
+  if (daysSinceLastValidFollowup <= STATUS_UP_TO_DATE_MAX_DAYS) {
+    return {
+      status: 'up_to_date',
+      lastValidFollowupAt,
+      daysSinceLastValidFollowup,
+    }
+  }
+
+  if (daysSinceLastValidFollowup <= STATUS_PENDING_MAX_DAYS) {
+    return {
+      status: 'pending',
+      lastValidFollowupAt,
+      daysSinceLastValidFollowup,
+    }
+  }
+
+  return {
+    status: 'urgent',
+    lastValidFollowupAt,
+    daysSinceLastValidFollowup,
+  }
+}
+
+function buildCoverageMap(
+  beneficiaryIds: string[],
+  calls: Array<{
+    beneficiary_id: string | null
+    duration_seconds?: number | null
+    started_at?: string | null
+    call_date?: string | null
+  }>,
+  followups: Array<{
+    beneficiary_id: string | null
+    event_type: FollowupEventType
+    occurred_at?: string | null
+  }>,
+) {
+  return new Map(
+    beneficiaryIds.map((beneficiaryId) => {
+      const beneficiaryCalls = calls.filter((call) => call.beneficiary_id === beneficiaryId)
+      const beneficiaryFollowups = followups.filter(
+        (followup) => followup.beneficiary_id === beneficiaryId,
+      )
+
+      return [beneficiaryId, deriveCoverageFromSources(beneficiaryCalls, beneficiaryFollowups)]
+    }),
+  )
+}
+
 function buildLatestInteractionMap(
   calls: Array<{
     beneficiary_id: string | null
     started_at: string | null
     call_date: string | null
     amaia_result_raw: string | null
+    duration_seconds?: number | null
   }>,
   followups: Array<{
     beneficiary_id: string | null
@@ -255,12 +415,13 @@ export async function fetchTeleoperatorPortfolio(userId: string) {
   )
 
   let latestInteractionMap = new Map<string, LatestInteraction>()
+  let coverageMap = new Map<string, DerivedCoverage>()
 
   if (beneficiaryIds.length > 0) {
     const [callsResponse, followupsResponse] = await Promise.all([
       client
         .from('call_interactions')
-        .select('beneficiary_id, started_at, call_date, amaia_result_raw')
+        .select('beneficiary_id, started_at, call_date, amaia_result_raw, duration_seconds')
         .in('beneficiary_id', beneficiaryIds),
       client
         .from('followup_events')
@@ -284,21 +445,31 @@ export async function fetchTeleoperatorPortfolio(userId: string) {
         event_type: FollowupEventType
       }>,
     )
+
+    coverageMap = buildCoverageMap(
+      beneficiaryIds,
+      (callsResponse.data ?? []) as Array<{
+        beneficiary_id: string | null
+        started_at: string | null
+        call_date: string | null
+        duration_seconds?: number | null
+      }>,
+      (followupsResponse.data ?? []) as Array<{
+        beneficiary_id: string | null
+        occurred_at: string | null
+        event_type: FollowupEventType
+      }>,
+    )
   }
 
   const items = ((data as Array<Record<string, unknown>>) ?? []).map((row) => {
     const beneficiaryRaw = pickSingle(row.beneficiary as Record<string, unknown> | Record<string, unknown>[] | null)
-    const statusRaw = beneficiaryRaw
-      ? pickSingle(
-          beneficiaryRaw.beneficiary_followup_status as
-            | Record<string, unknown>
-            | Record<string, unknown>[]
-            | null,
-        )
-      : null
-
-    const followupStatus = (statusRaw?.status as FollowupStatus | undefined) ?? 'no_data'
     const latestInteraction = latestInteractionMap.get(String(row.beneficiary_id))
+    const derivedCoverage = coverageMap.get(String(row.beneficiary_id)) ?? {
+      status: 'no_data',
+      lastValidFollowupAt: null,
+      daysSinceLastValidFollowup: null,
+    }
 
     return {
       assignmentId: String(row.id),
@@ -311,10 +482,9 @@ export async function fetchTeleoperatorPortfolio(userId: string) {
         region: (beneficiaryRaw?.region as string | null) ?? null,
         status: ((beneficiaryRaw?.status as string | null) ?? 'active') as MinimalBeneficiary['status'],
       },
-      followupStatus,
-      lastValidFollowupAt: (statusRaw?.last_valid_followup_at as string | null) ?? null,
-      daysSinceLastValidFollowup:
-        (statusRaw?.days_since_last_valid_followup as number | null) ?? null,
+      followupStatus: derivedCoverage.status,
+      lastValidFollowupAt: derivedCoverage.lastValidFollowupAt,
+      daysSinceLastValidFollowup: derivedCoverage.daysSinceLastValidFollowup,
       lastInteractionAt: latestInteraction?.at ?? null,
       lastInteractionLabel: latestInteraction?.label ?? null,
       startsAt: String(row.starts_at),
@@ -390,7 +560,7 @@ export async function fetchTeleoperatorBeneficiaryDetail(
       | null,
   )
 
-  const [contactsResponse, callsResponse, followupsResponse, statusResponse] = await Promise.all([
+  const [contactsResponse, callsResponse, followupsResponse] = await Promise.all([
     client
       .from('beneficiary_contacts')
       .select(
@@ -403,7 +573,7 @@ export async function fetchTeleoperatorBeneficiaryDetail(
     client
       .from('call_interactions')
       .select(
-        'id, call_date, started_at, ended_at, direction, matched_status, is_valid_contact, counts_as_valid_followup, phone_raw, phone_normalized, amaia_result_raw, amaia_observation_raw, notes',
+        'id, call_date, started_at, ended_at, duration_seconds, direction, matched_status, is_valid_contact, counts_as_valid_followup, phone_raw, phone_normalized, amaia_result_raw, amaia_observation_raw, notes',
       )
       .eq('beneficiary_id', beneficiaryId)
       .order('started_at', { ascending: false })
@@ -411,16 +581,11 @@ export async function fetchTeleoperatorBeneficiaryDetail(
     client
       .from('followup_events')
       .select(
-        'id, beneficiary_contact_id, event_type, occurred_at, is_valid_followup, requires_support, source, notes, created_by',
+        'id, beneficiary_id, beneficiary_contact_id, event_type, occurred_at, is_valid_followup, requires_support, source, notes, created_by',
       )
       .eq('beneficiary_id', beneficiaryId)
       .order('occurred_at', { ascending: false })
       .limit(20),
-    client
-      .from('beneficiary_followup_status')
-      .select('status, last_valid_followup_at, days_since_last_valid_followup')
-      .eq('beneficiary_id', beneficiaryId)
-      .maybeSingle(),
   ])
 
   if (contactsResponse.error) {
@@ -435,9 +600,17 @@ export async function fetchTeleoperatorBeneficiaryDetail(
     throw followupsResponse.error
   }
 
-  if (statusResponse.error) {
-    throw statusResponse.error
-  }
+  const derivedCoverage = deriveCoverageFromSources(
+    (callsResponse.data ?? []) as Array<{
+      duration_seconds?: number | null
+      started_at?: string | null
+      call_date?: string | null
+    }>,
+    (followupsResponse.data ?? []) as Array<{
+      event_type: FollowupEventType
+      occurred_at?: string | null
+    }>,
+  )
 
   return {
     assignmentId: String((assignment as Record<string, unknown>).id),
@@ -458,11 +631,9 @@ export async function fetchTeleoperatorBeneficiaryDetail(
       notes: ((assignment as Record<string, unknown>).notes as string | null) ?? null,
     },
     status: {
-      status: ((statusResponse.data?.status as FollowupStatus | undefined) ?? 'no_data') as FollowupStatus,
-      lastValidFollowupAt:
-        (statusResponse.data?.last_valid_followup_at as string | null) ?? null,
-      daysSinceLastValidFollowup:
-        (statusResponse.data?.days_since_last_valid_followup as number | null) ?? null,
+      status: derivedCoverage.status,
+      lastValidFollowupAt: derivedCoverage.lastValidFollowupAt,
+      daysSinceLastValidFollowup: derivedCoverage.daysSinceLastValidFollowup,
     },
     contacts: (contactsResponse.data ?? []).map((contact) => ({
       id: contact.id,
@@ -482,6 +653,7 @@ export async function fetchTeleoperatorBeneficiaryDetail(
       callDate: call.call_date,
       startedAt: call.started_at,
       endedAt: call.ended_at,
+      durationSeconds: call.duration_seconds,
       direction: call.direction,
       matchedStatus: call.matched_status,
       isValidContact: call.is_valid_contact,

@@ -73,7 +73,7 @@ export function PortfolioPage() {
     return (
       <PageState
         title="Cargando mi cartera"
-        description="Estamos consultando beneficiary_assignments activas, beneficiarios y beneficiary_followup_status."
+        description="Estamos preparando tu cartera con beneficiarios asignados y estado de seguimiento."
       />
     )
   }
@@ -97,7 +97,7 @@ export function PortfolioPage() {
               Beneficiarios asignados con prioridad operativa
             </h2>
             <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">
-              La vista lista asignaciones activas propias y usa beneficiary_followup_status para colorear urgencia, pendiente, al dia o sin datos sin recalcular reglas en cliente.
+              La vista prioriza tu cartera activa y muestra urgencia, pendiente, sin datos o al dia usando el estado consolidado disponible.
             </p>
           </div>
 

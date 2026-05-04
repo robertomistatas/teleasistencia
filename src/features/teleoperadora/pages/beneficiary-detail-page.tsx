@@ -8,6 +8,8 @@ import { StatusBadge } from '@/features/teleoperadora/components/status-badge'
 import {
   fetchTeleoperatorBeneficiaryDetail,
   followupEventLabels,
+  getContactTypeLabel,
+  getFollowupSourceLabel,
   type TeleoperatorBeneficiaryDetail,
 } from '@/features/teleoperadora/data'
 import { formatDateTime, formatRelativeFollowupDays, formatTextFallback } from '@/lib/format'
@@ -189,7 +191,7 @@ export function BeneficiaryDetailPage() {
                       {contact.countsAsValidFollowup && <Badge tone="success">Valida seguimiento</Badge>}
                     </div>
                     <p className="mt-3 text-base font-semibold text-slate-950">
-                      {contact.contactName || contact.relationship || contact.contactType}
+                      {contact.contactName || contact.relationship || getContactTypeLabel(contact.contactType)}
                     </p>
                     <p className="mt-1 text-sm text-slate-600">
                       {contact.phoneRaw || contact.phoneNormalized || 'Sin telefono'}
@@ -209,7 +211,7 @@ export function BeneficiaryDetailPage() {
             <div>
               <p className="text-sm uppercase tracking-[0.18em] text-slate-500">Historial llamadas</p>
               <h3 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
-                call_interactions
+                Historial de llamadas
               </h3>
             </div>
             <Badge tone="info">Ultimas 20</Badge>
@@ -271,7 +273,7 @@ export function BeneficiaryDetailPage() {
             <div>
               <p className="text-sm uppercase tracking-[0.18em] text-slate-500">Historial seguimientos</p>
               <h3 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
-                followup_events
+                Historial de seguimientos
               </h3>
             </div>
             <Badge tone="info">Ultimos 20</Badge>
@@ -287,12 +289,12 @@ export function BeneficiaryDetailPage() {
             {data.followups.map((followup) => (
               <article key={followup.id} className="rounded-[24px] border border-slate-200 bg-white p-4">
                 <div className="flex flex-wrap items-center gap-2">
-                  <Badge tone="info">{followup.source}</Badge>
+                  <Badge tone="info">{getFollowupSourceLabel(followup.source)}</Badge>
                   <Badge tone={followup.isValidFollowup ? 'success' : 'muted'}>
-                    {followup.isValidFollowup ? 'Seguimiento valido' : 'No valido'}
+                    {followup.isValidFollowup ? 'Contacto valido' : 'Sin contacto valido'}
                   </Badge>
                   <Badge tone={followup.requiresSupport ? 'warning' : 'muted'}>
-                    {followup.requiresSupport ? 'Requiere soporte' : 'Sin derivacion'}
+                    {followup.requiresSupport ? 'Requiere soporte' : 'Sin acciones adicionales'}
                   </Badge>
                 </div>
                 <p className="mt-3 text-base font-semibold text-slate-950">
