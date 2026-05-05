@@ -19,9 +19,9 @@ export const roleNavigation: Record<UserRole, NavItem[]> = {
       description: 'Vista global del padron',
     },
     {
-      label: 'Auditoria',
-      path: '/super-admin/auditoria',
-      description: 'Supervision transversal',
+      label: 'Auditoría y reportes',
+      path: '/auditoria',
+      description: 'Supervisión transversal',
     },
   ],
   admin: [
@@ -36,9 +36,9 @@ export const roleNavigation: Record<UserRole, NavItem[]> = {
       description: 'Exploracion operativa',
     },
     {
-      label: 'Auditoria',
-      path: '/admin/auditoria',
-      description: 'Revision operativa',
+      label: 'Auditoría y reportes',
+      path: '/auditoria',
+      description: 'Revisión operativa',
     },
   ],
   teleoperadora: [

@@ -9,6 +9,7 @@ import { NotFoundPage } from '@/features/core/pages/not-found-page'
 import { PlaceholderPage } from '@/features/core/pages/placeholder-page'
 import { RoleHomeRedirect } from '@/features/core/pages/role-home-redirect'
 import { UnauthorizedPage } from '@/features/core/pages/unauthorized-page'
+import { AuditDashboardPage } from '@/features/auditoria/pages/audit-dashboard-page'
 import { SignInPage } from '@/features/auth/sign-in-page'
 import { BeneficiaryDetailPage } from '@/features/teleoperadora/pages/beneficiary-detail-page'
 import { PortfolioPage } from '@/features/teleoperadora/pages/portfolio-page'
@@ -40,6 +41,15 @@ export function AppRouter() {
         }
       >
         <Route path="/unauthorized" element={<UnauthorizedPage />} />
+
+        <Route
+          path="/auditoria"
+          element={
+            <RequireRole allowedRoles={['admin', 'super_admin']}>
+              <AuditDashboardPage />
+            </RequireRole>
+          }
+        />
 
         <Route
           path="/teleoperadora"
@@ -112,10 +122,7 @@ export function AppRouter() {
           <Route
             path="auditoria"
             element={
-              <PlaceholderPage
-                title="Auditoria"
-                description="El modulo de auditoria se posterga para una fase posterior."
-              />
+              <Navigate to="/auditoria" replace />
             }
           />
         </Route>
@@ -150,10 +157,7 @@ export function AppRouter() {
           <Route
             path="auditoria"
             element={
-              <PlaceholderPage
-                title="Auditoria"
-                description="Los dashboards y reportes ejecutivos no se implementan en esta etapa."
-              />
+              <Navigate to="/auditoria" replace />
             }
           />
         </Route>
