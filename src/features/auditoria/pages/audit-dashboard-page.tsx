@@ -1,6 +1,13 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { Badge, Panel } from '@/components/ui'
+import {
+  fetchAuditExecutiveSummary,
+  type AuditExecutiveRiskItem,
+  type AuditExecutiveSummary,
+  type AuditTeleoperatorRankingItem,
+} from '@/features/auditoria/data'
+import { followupStatusMeta } from '@/features/teleoperadora/data'
 import { cn } from '@/lib/cn'
 
 type DateRangeOption = 'last-month' | 'last-week' | 'custom'
@@ -39,24 +46,329 @@ const auditTabs: Array<{ id: AuditTab; label: string; title: string; description
   },
 ]
 
+type SummaryStateProps = {
+  title: string
+  description: string
+  tone: 'info' | 'danger' | 'muted'
+  action?: {
+    label: string
+    onClick: () => void
+  }
+}
+
+function SummaryState({ title, description, tone, action }: SummaryStateProps) {
+  return (
+    <div className="rounded-[28px] border border-dashed border-slate-300 bg-slate-50 px-6 py-10">
+      <Badge tone={tone}>{tone === 'danger' ? 'Error' : tone === 'info' ? 'Cargando' : 'Sin datos'}</Badge>
+      <h4 className="mt-3 text-xl font-semibold tracking-tight text-slate-900">{title}</h4>
+      <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600">{description}</p>
+      {action && (
+        <button
+          type="button"
+          onClick={action.onClick}
+          className="mt-5 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-800 transition hover:border-slate-300 hover:bg-slate-100"
+        >
+          {action.label}
+        </button>
+      )}
+    </div>
+  )
+}
+
+function KpiCard({
+  title,
+  value,
+  tone,
+  helper,
+}: {
+  title: string
+  value: string
+  tone: 'success' | 'warning' | 'danger' | 'muted' | 'info'
+  helper: string
+}) {
+  return (
+    <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
+      <Badge tone={tone}>{title}</Badge>
+      <p className="mt-4 text-3xl font-semibold tracking-tight text-slate-950">{value}</p>
+      <p className="mt-2 text-sm leading-6 text-slate-600">{helper}</p>
+    </div>
+  )
+}
+
+function RankingTable({ items }: { items: AuditTeleoperatorRankingItem[] }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
+        <thead>
+          <tr className="text-xs uppercase tracking-[0.18em] text-slate-500">
+            <th className="px-4 py-3 font-semibold">Teleoperadora</th>
+            <th className="px-4 py-3 font-semibold">Cartera</th>
+            <th className="px-4 py-3 font-semibold">Al día</th>
+            <th className="px-4 py-3 font-semibold">Pendientes</th>
+            <th className="px-4 py-3 font-semibold">Urgentes</th>
+            <th className="px-4 py-3 font-semibold">Sin datos</th>
+            <th className="px-4 py-3 font-semibold">Cobertura</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {items.map((item) => (
+            <tr key={item.teleoperatorId} className="align-top text-slate-700">
+              <td className="px-4 py-4">
+                <p className="font-semibold text-slate-950">{item.teleoperatorName}</p>
+                <p className="mt-1 text-xs text-slate-500">{item.teleoperatorEmail ?? 'Sin correo visible'}</p>
+              </td>
+              <td className="px-4 py-4 font-medium">{item.totalPortfolio}</td>
+              <td className="px-4 py-4">{item.totalUpToDate}</td>
+              <td className="px-4 py-4">{item.totalPending}</td>
+              <td className="px-4 py-4">{item.totalUrgent}</td>
+              <td className="px-4 py-4">{item.totalNoData}</td>
+              <td className="px-4 py-4">
+                <span className="font-semibold text-slate-950">{item.coveragePercentage}%</span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function ExecutiveRiskList({ items }: { items: AuditExecutiveRiskItem[] }) {
+  return (
+    <div className="space-y-3">
+      {items.map((item) => (
+        <div
+          key={item.beneficiaryId}
+          className={cn(
+            'rounded-[24px] border p-4',
+            followupStatusMeta.urgent.panelClass,
+          )}
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-base font-semibold tracking-tight text-slate-950">
+                {item.beneficiaryName}
+              </p>
+              <p className="mt-1 text-sm text-slate-600">{item.rut ?? 'RUT no disponible'}</p>
+            </div>
+            <Badge tone="danger">
+              {item.daysSinceLastValidFollowup !== null
+                ? `${item.daysSinceLastValidFollowup} días sin contacto`
+                : 'Sin días disponibles'}
+            </Badge>
+          </div>
+
+          <div className="mt-4 text-sm leading-6 text-slate-700">
+            <p className="font-medium text-slate-900">Teleoperadora asignada</p>
+            <p>
+              {item.teleoperatorName ?? 'Sin asignación activa'}
+              {item.teleoperatorEmail ? ` · ${item.teleoperatorEmail}` : ''}
+            </p>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function SummaryTab({
+  summary,
+  loading,
+  error,
+  onRetry,
+}: {
+  summary: AuditExecutiveSummary | null
+  loading: boolean
+  error: string | null
+  onRetry: () => void
+}) {
+  if (loading) {
+    return (
+      <SummaryState
+        title="Cargando resumen ejecutivo"
+        description="Estamos consultando cobertura actual, cumplimiento de cartera asignada y riesgo ejecutivo desde Supabase."
+        tone="info"
+      />
+    )
+  }
+
+  if (error) {
+    return (
+      <SummaryState
+        title="No fue posible cargar el resumen ejecutivo"
+        description={error}
+        tone="danger"
+        action={{
+          label: 'Reintentar',
+          onClick: onRetry,
+        }}
+      />
+    )
+  }
+
+  if (!summary || summary.metrics.totalActiveBeneficiaries === 0) {
+    return (
+      <SummaryState
+        title="No hay cartera activa para mostrar"
+        description="Cuando existan beneficiarios activos y asignaciones vigentes, este resumen mostrará cobertura, ranking y riesgo ejecutivo."
+        tone="muted"
+      />
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <KpiCard
+          title="Cobertura global"
+          value={`${summary.metrics.upToDatePercentage}%`}
+          tone="success"
+          helper="Beneficiarios al día sobre el total de beneficiarios activos."
+        />
+        <KpiCard
+          title="Beneficiarios activos"
+          value={String(summary.metrics.totalActiveBeneficiaries)}
+          tone="info"
+          helper="Universo actual considerado para la lectura ejecutiva del módulo."
+        />
+        <KpiCard
+          title="Al día"
+          value={String(summary.metrics.totalUpToDate)}
+          tone="success"
+          helper="Beneficiarios con cumplimiento de seguimiento vigente."
+        />
+        <KpiCard
+          title="Pendientes"
+          value={String(summary.metrics.totalPending)}
+          tone="warning"
+          helper="Beneficiarios que requieren seguimiento próximo para evitar deterioro."
+        />
+        <KpiCard
+          title="Urgentes"
+          value={String(summary.metrics.totalUrgent)}
+          tone="danger"
+          helper="Beneficiarios con mayor riesgo operativo por falta de contacto vigente."
+        />
+        <KpiCard
+          title="Sin datos"
+          value={String(summary.metrics.totalNoData)}
+          tone="muted"
+          helper="Beneficiarios sin evidencia suficiente en el estado consolidado actual."
+        />
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[1.35fr_0.95fr]">
+        <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-2 border-b border-slate-100 pb-4 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Mini ranking</p>
+              <h4 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+                Cumplimiento de cartera asignada
+              </h4>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Ordenado por mayor necesidad de atención: urgentes, sin datos y menor cobertura primero.
+              </p>
+            </div>
+            <Badge tone="warning">Atención prioritaria arriba</Badge>
+          </div>
+
+          <div className="mt-4">
+            {summary.ranking.length > 0 ? (
+              <RankingTable items={summary.ranking} />
+            ) : (
+              <SummaryState
+                title="No hay carteras activas asignadas"
+                description="El ranking aparecerá cuando existan asignaciones activas primarias asociadas a teleoperadoras."
+                tone="muted"
+              />
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="border-b border-slate-100 pb-4">
+            <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Riesgo ejecutivo</p>
+            <h4 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+              Top 10 beneficiarios urgentes
+            </h4>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              Beneficiarios activos con mayor cantidad de días sin contacto válido, mostrando teleoperadora asignada si existe.
+            </p>
+          </div>
+
+          <div className="mt-4">
+            {summary.topUrgentBeneficiaries.length > 0 ? (
+              <ExecutiveRiskList items={summary.topUrgentBeneficiaries} />
+            ) : (
+              <SummaryState
+                title="No hay beneficiarios urgentes para mostrar"
+                description="Cuando existan casos urgentes en el estado consolidado, se listarán aquí para revisión ejecutiva rápida."
+                tone="muted"
+              />
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function PlaceholderTab({ description }: { description: string }) {
+  return (
+    <div className="rounded-[28px] border border-dashed border-slate-300 bg-slate-50 px-6 py-10">
+      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Placeholder</p>
+      <h4 className="mt-3 text-xl font-semibold tracking-tight text-slate-900">
+        Contenido en construcción
+      </h4>
+      <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600">{description}</p>
+    </div>
+  )
+}
+
 export function AuditDashboardPage() {
   const [selectedRange, setSelectedRange] = useState<DateRangeOption>('last-month')
   const [activeTab, setActiveTab] = useState<AuditTab>('summary')
+  const [summary, setSummary] = useState<AuditExecutiveSummary | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   const currentTab = auditTabs.find((tab) => tab.id === activeTab) ?? auditTabs[0]
+
+  const loadSummary = async () => {
+    setLoading(true)
+    setError(null)
+
+    try {
+      const nextSummary = await fetchAuditExecutiveSummary()
+      setSummary(nextSummary)
+    } catch (fetchError) {
+      setError(
+        fetchError instanceof Error
+          ? fetchError.message
+          : 'No fue posible consultar el resumen ejecutivo.',
+      )
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void loadSummary()
+  }, [])
 
   return (
     <div className="space-y-5">
       <Panel className="p-6 sm:p-7">
         <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
           <div className="max-w-3xl">
-            <Badge tone="info">Módulo base</Badge>
+            <Badge tone="info">Resumen conectado</Badge>
             <h2 className="mt-4 text-3xl font-semibold tracking-tight text-slate-950">
               Auditoría y reportes
             </h2>
             <p className="mt-3 text-sm leading-7 text-slate-600 sm:text-base">
-              Base navegable para auditoría operacional, seguimiento ejecutivo y preparación de reportes.
-              Esta fase deja listos el layout, los filtros globales y la estructura por tabs sin cargar métricas reales aún.
+              Lectura ejecutiva del estado actual de la operación, usando como fuente de verdad el
+              estado consolidado de seguimiento del backend. El filtro de rango se mantiene como
+              referencia visual en esta fase y no fuerza cálculo histórico.
             </p>
           </div>
 
@@ -82,7 +394,7 @@ export function AuditDashboardPage() {
                   >
                     <span>{option.label}</span>
                     <span className={cn('text-xs uppercase tracking-[0.18em]', isActive ? 'text-slate-200' : 'text-slate-400')}>
-                      Filtro
+                      Visual
                     </span>
                   </button>
                 )
@@ -130,16 +442,19 @@ export function AuditDashboardPage() {
           <Badge tone="muted">{rangeOptions.find((option) => option.value === selectedRange)?.label}</Badge>
         </div>
 
-        <div className="mt-6 rounded-[28px] border border-dashed border-slate-300 bg-slate-50 px-6 py-10">
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
-            Placeholder
-          </p>
-          <h4 className="mt-3 text-xl font-semibold tracking-tight text-slate-900">
-            Contenido en construcción
-          </h4>
-          <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600">
-            Esta tab queda preparada para conectar métricas, tablas y reportes en las fases siguientes del módulo de auditoría.
-          </p>
+        <div className="mt-6">
+          {activeTab === 'summary' ? (
+            <SummaryTab
+              summary={summary}
+              loading={loading}
+              error={error}
+              onRetry={() => {
+                void loadSummary()
+              }}
+            />
+          ) : (
+            <PlaceholderTab description="Esta tab queda preparada para conectar métricas, tablas y reportes en las fases siguientes del módulo de auditoría." />
+          )}
         </div>
       </Panel>
     </div>
