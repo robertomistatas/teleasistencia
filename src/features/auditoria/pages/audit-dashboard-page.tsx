@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
-import { Badge, Panel } from '@/components/ui'
+import { Badge, Panel, primaryButtonClass } from '@/components/ui'
+import { useAuth } from '@/features/auth/use-auth'
 import {
   fetchAuditExecutiveSummary,
   fetchRiskDashboard,
@@ -19,6 +20,13 @@ import { cn } from '@/lib/cn'
 
 type DateRangeOption = 'last-month' | 'last-week' | 'custom'
 type AuditTab = 'summary' | 'teleoperators' | 'risk' | 'reports'
+type ReportType =
+  | 'executive-general'
+  | 'teleoperator-portfolio'
+  | 'risk'
+  | 'data-quality'
+  | 'amaia-calls'
+  | 'manual-actions'
 
 const rangeOptions: Array<{ value: DateRangeOption; label: string }> = [
   { value: 'last-month', label: 'Último mes' },
@@ -53,6 +61,43 @@ const auditTabs: Array<{ id: AuditTab; label: string; title: string; description
   },
 ]
 
+const reportTypeOptions: Array<{
+  id: ReportType
+  label: string
+  description: string
+}> = [
+  {
+    id: 'executive-general',
+    label: 'Informe ejecutivo general',
+    description: 'Síntesis ejecutiva del estado actual del módulo de auditoría.',
+  },
+  {
+    id: 'teleoperator-portfolio',
+    label: 'Informe por teleoperadora/cartera',
+    description: 'Comparación de cumplimiento de cartera asignada y focos por responsable.',
+  },
+  {
+    id: 'risk',
+    label: 'Informe de riesgo',
+    description: 'Priorización formal de beneficiarios críticos, alertas y concentración de riesgo.',
+  },
+  {
+    id: 'data-quality',
+    label: 'Informe de calidad de datos',
+    description: 'Revisión de cobertura, trazabilidad y brechas de información operativa.',
+  },
+  {
+    id: 'amaia-calls',
+    label: 'Informe de llamadas AMAIA',
+    description: 'Preview ejecutivo de cobertura asociada a la operación AMAIA sin atribución individual.',
+  },
+  {
+    id: 'manual-actions',
+    label: 'Informe de gestiones manuales',
+    description: 'Preparación del reporte sobre acciones de seguimiento manual y su foco operativo.',
+  },
+]
+
 type SummaryStateProps = {
   title: string
   description: string
@@ -61,6 +106,39 @@ type SummaryStateProps = {
     label: string
     onClick: () => void
   }
+}
+
+type ReportPreviewMetric = {
+  title: string
+  value: string
+  tone: 'success' | 'warning' | 'danger' | 'muted' | 'info'
+  helper: string
+}
+
+type ReportPreviewTable = {
+  eyebrow: string
+  title: string
+  description: string
+  columns: string[]
+  rows: Array<{
+    key: string
+    cells: string[]
+  }>
+}
+
+type ReportPreviewContent = {
+  title: string
+  description: string
+  coverSummary: string
+  kpis: ReportPreviewMetric[]
+  table: ReportPreviewTable
+  risksTitle: string
+  risksDescription: string
+  riskItems: string[]
+  conclusions: string[]
+  includedContent: string[]
+  appendixTitle: string
+  appendixDescription: string
 }
 
 function getFriendlyAuditErrorMessage(scope: 'summary' | 'teleoperators' | 'risk') {
@@ -73,6 +151,420 @@ function getFriendlyAuditErrorMessage(scope: 'summary' | 'teleoperators' | 'risk
   }
 
   return 'No pudimos actualizar la tabla de teleoperadoras en este momento. Intenta nuevamente en unos instantes.'
+}
+
+function buildReportTableRows(
+  rows: Array<{ key: string; cells: string[] }>,
+  fallback: string[],
+) {
+  if (rows.length > 0) {
+    return rows
+  }
+
+  return [
+    {
+      key: 'fallback',
+      cells: fallback,
+    },
+  ]
+}
+
+function buildReportPreviewContent({
+  reportType,
+  summary,
+  teleoperatorTable,
+  riskDashboard,
+  selectedRangeLabel,
+}: {
+  reportType: ReportType
+  summary: AuditExecutiveSummary | null
+  teleoperatorTable: AuditTeleoperatorRankingItem[]
+  riskDashboard: AuditRiskDashboard | null
+  selectedRangeLabel: string
+}): ReportPreviewContent {
+  const topTeleoperators = teleoperatorTable.slice(0, 4)
+  const topRisks = riskDashboard?.criticalBeneficiaries.slice(0, 4) ?? []
+  const topCommunes = riskDashboard?.byCommune.slice(0, 4) ?? []
+  const topRiskByTeleoperator = riskDashboard?.byTeleoperator.slice(0, 4) ?? []
+
+  if (reportType === 'teleoperator-portfolio') {
+    return {
+      title: 'Informe por teleoperadora/cartera',
+      description: 'Comparación formal del cumplimiento de cartera asignada y prioridades operativas por responsable.',
+      coverSummary: `Preparado con el rango visual ${selectedRangeLabel.toLowerCase()} y los datos actuales del módulo de auditoría.`,
+      kpis: [
+        {
+          title: 'Teleoperadoras visibles',
+          value: String(teleoperatorTable.length),
+          tone: 'info',
+          helper: 'Responsables con cartera activa primaria en la lectura actual.',
+        },
+        {
+          title: 'Beneficiarios al día',
+          value: String(summary?.metrics.totalUpToDate ?? 0),
+          tone: 'success',
+          helper: 'Cobertura vigente observada sobre la cartera considerada.',
+        },
+        {
+          title: 'Urgentes en cartera',
+          value: String(summary?.metrics.totalUrgent ?? 0),
+          tone: 'danger',
+          helper: 'Casos que tensionan la supervisión operativa por responsable.',
+        },
+      ],
+      table: {
+        eyebrow: 'Ranking / tablas',
+        title: 'Cumplimiento de cartera asignada',
+        description: 'Se prioriza la lectura comparativa por cobertura y presión operacional.',
+        columns: ['Teleoperadora', 'Cartera', 'Al día', 'Urgentes', 'Cobertura %'],
+        rows: buildReportTableRows(
+          topTeleoperators.map((item) => ({
+            key: item.teleoperatorId,
+            cells: [
+              item.teleoperatorName,
+              String(item.totalPortfolio),
+              String(item.totalUpToDate),
+              String(item.totalUrgent),
+              `${item.coveragePercentage}%`,
+            ],
+          })),
+          ['Sin datos disponibles', '-', '-', '-', '-'],
+        ),
+      },
+      risksTitle: 'Riesgos que acompañan la cartera',
+      risksDescription: 'Se incluyen casos urgentes y beneficiarios que requieren revisión inmediata.',
+      riskItems:
+        topRisks.map((item) => `${item.beneficiaryName} · ${item.riskReason}`) || [],
+      conclusions: [
+        'El informe se enfoca en cumplimiento de cartera y rezagos de seguimiento por responsable.',
+        'Las secciones formales quedan listas para exportación PDF cuando se implemente la generación.',
+      ],
+      includedContent: [
+        'Portada con rango visual y tipo de informe.',
+        'KPIs principales de cobertura y presión operacional.',
+        'Ranking comparativo por teleoperadora.',
+        'Listado breve de riesgos que requieren revisión.',
+        'Conclusiones ejecutivas y anexo de observaciones.',
+      ],
+      appendixTitle: 'Anexo opcional',
+      appendixDescription: 'Puede incorporar el ranking completo y notas de supervisión por cartera cuando se exporte en PDF.',
+    }
+  }
+
+  if (reportType === 'risk') {
+    return {
+      title: 'Informe de riesgo',
+      description: 'Vista formal para revisión de beneficiarios críticos, alertas y concentración de riesgo operacional.',
+      coverSummary: `Usa el rango visual ${selectedRangeLabel.toLowerCase()} y consolida el estado actual del riesgo activo.`,
+      kpis: [
+        {
+          title: 'Beneficiarios urgentes',
+          value: String(riskDashboard?.metrics.totalUrgent ?? 0),
+          tone: 'danger',
+          helper: 'Casos que requieren intervención prioritaria.',
+        },
+        {
+          title: 'Más de 45 días sin contacto',
+          value: String(riskDashboard?.metrics.totalMoreThan45DaysWithoutContact ?? 0),
+          tone: 'danger',
+          helper: 'Rezago crítico acumulado en la cobertura vigente.',
+        },
+        {
+          title: 'Sin asignación activa',
+          value: String(riskDashboard?.metrics.totalWithoutActiveAssignment ?? 0),
+          tone: 'warning',
+          helper: 'Beneficiarios que requieren revisión de responsable.',
+        },
+      ],
+      table: {
+        eyebrow: 'Ranking / tablas',
+        title: 'Concentración de riesgo por teleoperadora',
+        description: 'Resume dónde se acumula mayor presión de riesgo en la operación actual.',
+        columns: ['Teleoperadora', 'Urgentes', 'Sin datos', 'Más de 30 días', 'Total riesgo'],
+        rows: buildReportTableRows(
+          topRiskByTeleoperator.map((item) => ({
+            key: item.teleoperatorKey,
+            cells: [
+              item.teleoperatorName,
+              String(item.totalUrgent),
+              String(item.totalNoData),
+              String(item.totalMoreThan30DaysWithoutContact),
+              String(item.totalRisk),
+            ],
+          })),
+          ['Sin datos disponibles', '-', '-', '-', '-'],
+        ),
+      },
+      risksTitle: 'Beneficiarios críticos incluidos',
+      risksDescription: 'La portada del PDF priorizará estos casos en la primera lectura ejecutiva.',
+      riskItems: topRisks.map(
+        (item) => `${item.beneficiaryName} · ${item.commune} · ${item.riskReason}`,
+      ),
+      conclusions: [
+        'La lectura ejecutiva prioriza primero asignación, urgencia y rezago de contacto.',
+        'El anexo podrá incluir el detalle completo por comuna y por teleoperadora en la siguiente fase.',
+      ],
+      includedContent: [
+        'Portada con síntesis del foco de riesgo.',
+        'KPIs de urgencia, rezago y asignación.',
+        'Resumen por teleoperadora.',
+        'Listado de beneficiarios críticos priorizados.',
+        'Conclusiones y alertas para supervisión.',
+      ],
+      appendixTitle: 'Anexo opcional',
+      appendixDescription: 'Preparado para incorporar el detalle completo por comuna y observaciones de revisión.',
+    }
+  }
+
+  if (reportType === 'data-quality') {
+    return {
+      title: 'Informe de calidad de datos',
+      description: 'Preview ejecutivo centrado en brechas de seguimiento, asignación y consistencia operativa.',
+      coverSummary: `Resume brechas visibles con el rango visual ${selectedRangeLabel.toLowerCase()} usando la información actual del módulo.`,
+      kpis: [
+        {
+          title: 'Sin datos de seguimiento',
+          value: String(summary?.metrics.totalNoData ?? 0),
+          tone: 'muted',
+          helper: 'Beneficiarios que requieren revisión de trazabilidad.',
+        },
+        {
+          title: 'Sin asignación activa',
+          value: String(riskDashboard?.metrics.totalWithoutActiveAssignment ?? 0),
+          tone: 'warning',
+          helper: 'Casos donde falta responsable operativo vigente.',
+        },
+        {
+          title: 'Urgentes observados',
+          value: String(summary?.metrics.totalUrgent ?? 0),
+          tone: 'danger',
+          helper: 'Ayuda a dimensionar el impacto operacional de la brecha de datos.',
+        },
+      ],
+      table: {
+        eyebrow: 'Ranking / tablas',
+        title: 'Brechas por comuna',
+        description: 'Permite identificar comunas con mayor concentración de seguimiento incompleto o crítico.',
+        columns: ['Comuna', 'Urgentes', 'Sin datos', 'Más de 30 días', 'Total riesgo'],
+        rows: buildReportTableRows(
+          topCommunes.map((item) => ({
+            key: item.commune,
+            cells: [
+              item.commune,
+              String(item.totalUrgent),
+              String(item.totalNoData),
+              String(item.totalMoreThan30DaysWithoutContact),
+              String(item.totalRisk),
+            ],
+          })),
+          ['Sin datos disponibles', '-', '-', '-', '-'],
+        ),
+      },
+      risksTitle: 'Alertas de calidad incluidas',
+      risksDescription: 'El reporte destaca beneficiarios que hoy requieren completar o revisar información operativa.',
+      riskItems: topRisks.map((item) => `${item.beneficiaryName} · ${item.riskTags.join(' · ')}`),
+      conclusions: [
+        'La vista prepara un informe formal para brechas de seguimiento sin crear nuevos cálculos complejos.',
+        'El contenido se apoya en el estado consolidado actual y en la asignación operativa vigente.',
+      ],
+      includedContent: [
+        'Portada con foco en calidad y trazabilidad.',
+        'KPIs de brecha visibles en la operación.',
+        'Resumen territorial de concentración.',
+        'Casos que requieren revisión manual.',
+        'Conclusiones y anexo de seguimiento.',
+      ],
+      appendixTitle: 'Anexo opcional',
+      appendixDescription: 'Queda listo para sumar observaciones de calidad y seguimiento de regularización en PDF.',
+    }
+  }
+
+  if (reportType === 'amaia-calls') {
+    return {
+      title: 'Informe de llamadas AMAIA',
+      description: 'Preview formal para la lectura ejecutiva de cobertura asociada a la operación AMAIA.',
+      coverSummary: `Se prepara con el rango visual ${selectedRangeLabel.toLowerCase()} y la información auditada hoy disponible, sin autoría individual de llamadas.`,
+      kpis: [
+        {
+          title: 'Cobertura global',
+          value: `${summary?.metrics.upToDatePercentage ?? 0}%`,
+          tone: 'success',
+          helper: 'Beneficiarios al día sobre el universo activo observado.',
+        },
+        {
+          title: 'Pendientes',
+          value: String(summary?.metrics.totalPending ?? 0),
+          tone: 'warning',
+          helper: 'Beneficiarios que requieren seguimiento próximo.',
+        },
+        {
+          title: 'Sin datos',
+          value: String(summary?.metrics.totalNoData ?? 0),
+          tone: 'muted',
+          helper: 'Casos donde la trazabilidad actual no es suficiente.',
+        },
+      ],
+      table: {
+        eyebrow: 'Ranking / tablas',
+        title: 'Cumplimiento de cartera asociado a la operación',
+        description: 'Se muestra cobertura por cartera sin atribuir llamadas a una teleoperadora específica.',
+        columns: ['Teleoperadora', 'Cartera', 'Al día', 'Urgentes', 'Cobertura %'],
+        rows: buildReportTableRows(
+          topTeleoperators.map((item) => ({
+            key: item.teleoperatorId,
+            cells: [
+              item.teleoperatorName,
+              String(item.totalPortfolio),
+              String(item.totalUpToDate),
+              String(item.totalUrgent),
+              `${item.coveragePercentage}%`,
+            ],
+          })),
+          ['Sin datos disponibles', '-', '-', '-', '-'],
+        ),
+      },
+      risksTitle: 'Alertas asociadas a cobertura AMAIA',
+      risksDescription: 'El informe enfatiza la cobertura observada, no la autoría individual de llamadas.',
+      riskItems: topRisks.map((item) => `${item.beneficiaryName} · ${item.riskReason}`),
+      conclusions: [
+        'El preview ya está alineado con la restricción de no atribuir llamadas AMAIA por autora individual.',
+        'Cuando exista el PDF, esta vista servirá como base formal del informe exportable.',
+      ],
+      includedContent: [
+        'Portada con alcance del informe AMAIA.',
+        'KPIs de cobertura y seguimiento vigente.',
+        'Tabla comparativa por cartera asignada.',
+        'Alertas operacionales observadas.',
+        'Conclusiones y anexo metodológico.',
+      ],
+      appendixTitle: 'Anexo opcional',
+      appendixDescription: 'Reservado para notas metodológicas y alcance del dato AMAIA en la versión PDF.',
+    }
+  }
+
+  if (reportType === 'manual-actions') {
+    return {
+      title: 'Informe de gestiones manuales',
+      description: 'Preparación formal del reporte ejecutivo sobre acciones manuales y focos de seguimiento.',
+      coverSummary: `Usa el rango visual ${selectedRangeLabel.toLowerCase()} y la lectura actual del módulo para anticipar el contenido PDF.`,
+      kpis: [
+        {
+          title: 'Beneficiarios urgentes',
+          value: String(riskDashboard?.metrics.totalUrgent ?? 0),
+          tone: 'danger',
+          helper: 'Casos manuales priorizables por nivel de riesgo.',
+        },
+        {
+          title: 'Más de 30 días sin contacto',
+          value: String(riskDashboard?.metrics.totalMoreThan30DaysWithoutContact ?? 0),
+          tone: 'warning',
+          helper: 'Rezago que orienta las gestiones manuales prioritarias.',
+        },
+        {
+          title: 'Sin asignación activa',
+          value: String(riskDashboard?.metrics.totalWithoutActiveAssignment ?? 0),
+          tone: 'warning',
+          helper: 'Casos que requieren definición operativa antes de gestionar.',
+        },
+      ],
+      table: {
+        eyebrow: 'Ranking / tablas',
+        title: 'Priorización por responsable operativo',
+        description: 'Apoya la organización de gestiones manuales según concentración de riesgo.',
+        columns: ['Teleoperadora', 'Urgentes', 'Sin datos', 'Más de 30 días', 'Total riesgo'],
+        rows: buildReportTableRows(
+          topRiskByTeleoperator.map((item) => ({
+            key: item.teleoperatorKey,
+            cells: [
+              item.teleoperatorName,
+              String(item.totalUrgent),
+              String(item.totalNoData),
+              String(item.totalMoreThan30DaysWithoutContact),
+              String(item.totalRisk),
+            ],
+          })),
+          ['Sin datos disponibles', '-', '-', '-', '-'],
+        ),
+      },
+      risksTitle: 'Casos sugeridos para gestión',
+      risksDescription: 'Se anticipan los beneficiarios que deberían abrir la revisión manual del informe.',
+      riskItems: topRisks.map((item) => `${item.beneficiaryName} · ${item.commune} · ${item.riskReason}`),
+      conclusions: [
+        'El preview usa los riesgos y rezagos ya disponibles en auditoría para preparar el informe.',
+        'La exportación PDF podrá sumar anexos detallados sin modificar este flujo visual.',
+      ],
+      includedContent: [
+        'Portada con foco en seguimiento manual.',
+        'KPIs de priorización operativa.',
+        'Tabla de concentración por responsable.',
+        'Casos sugeridos para revisión manual.',
+        'Conclusiones y anexo de observaciones.',
+      ],
+      appendixTitle: 'Anexo opcional',
+      appendixDescription: 'Reservado para comentarios de gestión manual y seguimiento posterior a la revisión.',
+    }
+  }
+
+  return {
+    title: 'Informe ejecutivo general',
+    description: 'Preview formal del informe ejecutivo principal del módulo de auditoría.',
+    coverSummary: `Se prepara con el rango visual ${selectedRangeLabel.toLowerCase()} y resume el estado actual de la operación.`,
+    kpis: [
+      {
+        title: 'Cobertura global',
+        value: `${summary?.metrics.upToDatePercentage ?? 0}%`,
+        tone: 'success',
+        helper: 'Beneficiarios al día sobre el total activo observado.',
+      },
+      {
+        title: 'Urgentes',
+        value: String(summary?.metrics.totalUrgent ?? 0),
+        tone: 'danger',
+        helper: 'Casos críticos para la primera lectura ejecutiva.',
+      },
+      {
+        title: 'Sin datos',
+        value: String(summary?.metrics.totalNoData ?? 0),
+        tone: 'muted',
+        helper: 'Brechas de seguimiento visibles en la operación actual.',
+      },
+    ],
+    table: {
+      eyebrow: 'Ranking / tablas',
+      title: 'Resumen comparativo por teleoperadora',
+      description: 'Incluye una muestra del ranking actual de cumplimiento de cartera asignada.',
+      columns: ['Teleoperadora', 'Cartera', 'Al día', 'Urgentes', 'Cobertura %'],
+      rows: buildReportTableRows(
+        topTeleoperators.map((item) => ({
+          key: item.teleoperatorId,
+          cells: [
+            item.teleoperatorName,
+            String(item.totalPortfolio),
+            String(item.totalUpToDate),
+            String(item.totalUrgent),
+            `${item.coveragePercentage}%`,
+          ],
+        })),
+        ['Sin datos disponibles', '-', '-', '-', '-'],
+      ),
+    },
+    risksTitle: 'Riesgos incluidos',
+    risksDescription: 'El preview incorpora la vista priorizada de beneficiarios críticos y alertas vigentes.',
+    riskItems: topRisks.map((item) => `${item.beneficiaryName} · ${item.riskReason}`),
+    conclusions: [
+      'El informe ejecutivo reúne cobertura, comparación por cartera y focos de riesgo en un formato formal.',
+      'Esta preparación reutiliza los datos actuales del módulo y deja lista la salida futura a PDF.',
+    ],
+    includedContent: [
+      'Portada ejecutiva con alcance del informe.',
+      'KPIs principales del módulo.',
+      'Muestra de ranking por teleoperadora.',
+      'Riesgos y alertas prioritarias.',
+      'Conclusiones y anexo resumido.',
+    ],
+    appendixTitle: 'Anexo opcional',
+    appendixDescription: 'Puede sumar ranking extendido, riesgos completos y observaciones de supervisión en la exportación PDF.',
+  }
 }
 
 function SummaryState({ title, description, tone, action }: SummaryStateProps) {
@@ -785,6 +1277,274 @@ function SummaryTab({
   )
 }
 
+function ReportsTab({
+  reportType,
+  onSelectReportType,
+  selectedRangeLabel,
+  summary,
+  teleoperatorTable,
+  riskDashboard,
+  loading,
+  hasAnyData,
+  hasAnyError,
+  pdfLoading,
+  pdfError,
+  canGeneratePdf,
+  onGeneratePdf,
+  onRetry,
+}: {
+  reportType: ReportType
+  onSelectReportType: (value: ReportType) => void
+  selectedRangeLabel: string
+  summary: AuditExecutiveSummary | null
+  teleoperatorTable: AuditTeleoperatorRankingItem[]
+  riskDashboard: AuditRiskDashboard | null
+  loading: boolean
+  hasAnyData: boolean
+  hasAnyError: boolean
+  pdfLoading: boolean
+  pdfError: string | null
+  canGeneratePdf: boolean
+  onGeneratePdf: () => void
+  onRetry: () => void
+}) {
+  if (loading && !hasAnyData) {
+    return (
+      <SummaryState
+        title="Preparando preview del informe"
+        description="Estamos reuniendo la información actual de auditoría para estructurar la vista previa del reporte ejecutivo."
+        tone="info"
+      />
+    )
+  }
+
+  if (!hasAnyData && hasAnyError) {
+    return (
+      <SummaryState
+        title="No fue posible preparar el preview del informe"
+        description="No pudimos reunir la información necesaria en este momento. Intenta nuevamente en unos instantes."
+        tone="danger"
+        action={{
+          label: 'Reintentar',
+          onClick: onRetry,
+        }}
+      />
+    )
+  }
+
+  if (!hasAnyData) {
+    return (
+      <SummaryState
+        title="Todavía no hay contenido suficiente para preparar el informe"
+        description="Cuando existan datos visibles en auditoría, esta pestaña mostrará el preview formal que luego se exportará a PDF."
+        tone="muted"
+      />
+    )
+  }
+
+  const selectedOption = reportTypeOptions.find((option) => option.id === reportType) ?? reportTypeOptions[0]
+  const preview = buildReportPreviewContent({
+    reportType,
+    summary,
+    teleoperatorTable,
+    riskDashboard,
+    selectedRangeLabel,
+  })
+  const isExecutivePdf = reportType === 'executive-general'
+  const pdfButtonLabel = !isExecutivePdf
+    ? 'Próximamente PDF'
+    : pdfLoading
+      ? 'Preparando PDF...'
+      : 'Generar PDF'
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+          <div className="max-w-3xl">
+            <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Tipo de informe</p>
+            <h4 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+              Selección y preparación del reporte
+            </h4>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              Elige el formato de informe que se preparará más adelante para exportación PDF.
+            </p>
+          </div>
+
+          <div className="rounded-[24px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+            <p className="font-semibold text-slate-900">Rango visual seleccionado</p>
+            <p className="mt-2">{selectedRangeLabel}</p>
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
+          {reportTypeOptions.map((option) => {
+            const isActive = option.id === reportType
+
+            return (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => onSelectReportType(option.id)}
+                className={cn(
+                  'rounded-[22px] border px-4 py-4 text-left transition',
+                  isActive
+                    ? 'border-slate-950 bg-slate-950 text-white shadow-[0_14px_30px_rgba(15,23,42,0.16)]'
+                    : 'border-slate-200 bg-slate-50 text-slate-800 hover:border-slate-300 hover:bg-slate-100',
+                )}
+              >
+                <p className="text-sm font-semibold tracking-tight">{option.label}</p>
+                <p className={cn('mt-2 text-sm leading-6', isActive ? 'text-slate-200' : 'text-slate-600')}>
+                  {option.description}
+                </p>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[1.4fr_0.8fr]">
+        <div className="rounded-[32px] border border-slate-300 bg-white p-6 shadow-[0_28px_90px_rgba(15,23,42,0.10)]">
+          <div className="border-b border-slate-200 pb-6">
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Portada</p>
+            <h4 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">{preview.title}</h4>
+            <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">{preview.description}</p>
+            <div className="mt-5 flex flex-wrap gap-2">
+              <Badge tone="info">{selectedOption.label}</Badge>
+              <Badge tone="muted">{selectedRangeLabel}</Badge>
+              <Badge tone="success">Preview listo</Badge>
+            </div>
+            <p className="mt-4 text-sm leading-7 text-slate-700">{preview.coverSummary}</p>
+          </div>
+
+          <div className="mt-6 space-y-8">
+            <section>
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">KPIs principales</p>
+              <div className="mt-4 grid gap-4 md:grid-cols-3">
+                {preview.kpis.map((item) => (
+                  <div key={item.title} className="rounded-[24px] border border-slate-200 bg-slate-50 p-4">
+                    <Badge tone={item.tone}>{item.title}</Badge>
+                    <p className="mt-4 text-3xl font-semibold tracking-tight text-slate-950">{item.value}</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">{item.helper}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section>
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">{preview.table.eyebrow}</p>
+              <h5 className="mt-3 text-xl font-semibold tracking-tight text-slate-950">{preview.table.title}</h5>
+              <p className="mt-2 text-sm leading-6 text-slate-600">{preview.table.description}</p>
+              <div className="mt-4 overflow-x-auto rounded-[24px] border border-slate-200 bg-slate-50">
+                <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
+                  <thead>
+                    <tr className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                      {preview.table.columns.map((column) => (
+                        <th key={column} className="px-4 py-3 font-semibold">{column}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-slate-700">
+                    {preview.table.rows.map((row) => (
+                      <tr key={row.key}>
+                        {row.cells.map((cell, index) => (
+                          <td key={`${row.key}-${index}`} className={cn('px-4 py-4', index === 0 ? 'font-semibold text-slate-950' : '')}>
+                            {cell}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section>
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Riesgos</p>
+              <h5 className="mt-3 text-xl font-semibold tracking-tight text-slate-950">{preview.risksTitle}</h5>
+              <p className="mt-2 text-sm leading-6 text-slate-600">{preview.risksDescription}</p>
+              <div className="mt-4 space-y-3">
+                {preview.riskItems.length > 0 ? (
+                  preview.riskItems.map((item) => (
+                    <div key={item} className="rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-700">
+                      {item}
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-600">
+                    No hay riesgos destacados para incluir en esta vista previa.
+                  </div>
+                )}
+              </div>
+            </section>
+
+            <section>
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Conclusiones y alertas</p>
+              <div className="mt-4 space-y-3">
+                {preview.conclusions.map((item) => (
+                  <div key={item} className="rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-700">
+                    {item}
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section>
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Anexo opcional</p>
+              <h5 className="mt-3 text-lg font-semibold tracking-tight text-slate-950">{preview.appendixTitle}</h5>
+              <p className="mt-2 text-sm leading-6 text-slate-600">{preview.appendixDescription}</p>
+            </section>
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+            <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Contenido incluido</p>
+            <h4 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+              Estructura prevista del informe
+            </h4>
+            <div className="mt-4 space-y-3">
+              {preview.includedContent.map((item) => (
+                <div key={item} className="rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-700">
+                  {item}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+            <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Estado del informe</p>
+            <h4 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+              Preparación y salida
+            </h4>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Badge tone="success">Preview listo</Badge>
+              <Badge tone="warning">PDF pendiente de implementación</Badge>
+              <Badge tone="info">Usa datos actuales del módulo de auditoría</Badge>
+            </div>
+            <p className="mt-4 text-sm leading-7 text-slate-600">
+              Esta vista ya organiza el contenido y el tono del informe. En esta fase se habilita la primera descarga real solo para el informe ejecutivo general.
+            </p>
+            {pdfError ? (
+              <p className="mt-4 text-sm leading-6 text-rose-700">
+                No pudimos preparar el PDF en este momento. Intenta nuevamente en unos instantes.
+              </p>
+            ) : null}
+            <button
+              type="button"
+              disabled={!canGeneratePdf || pdfLoading}
+              onClick={onGeneratePdf}
+              className={cn(primaryButtonClass, 'mt-5 w-full')}
+            >
+              {pdfButtonLabel}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function PlaceholderTab({ description }: { description: string }) {
   return (
     <div className="rounded-[28px] border border-dashed border-slate-300 bg-slate-50 px-6 py-10">
@@ -798,8 +1558,10 @@ function PlaceholderTab({ description }: { description: string }) {
 }
 
 export function AuditDashboardPage() {
+  const { profile } = useAuth()
   const [selectedRange, setSelectedRange] = useState<DateRangeOption>('last-month')
   const [activeTab, setActiveTab] = useState<AuditTab>('summary')
+  const [selectedReportType, setSelectedReportType] = useState<ReportType>('executive-general')
   const [summary, setSummary] = useState<AuditExecutiveSummary | null>(null)
   const [summaryLoading, setSummaryLoading] = useState(true)
   const [summaryError, setSummaryError] = useState<string | null>(null)
@@ -809,8 +1571,19 @@ export function AuditDashboardPage() {
   const [riskDashboard, setRiskDashboard] = useState<AuditRiskDashboard | null>(null)
   const [riskLoading, setRiskLoading] = useState(true)
   const [riskError, setRiskError] = useState<string | null>(null)
+  const [reportPdfLoading, setReportPdfLoading] = useState(false)
+  const [reportPdfError, setReportPdfError] = useState<string | null>(null)
 
   const currentTab = auditTabs.find((tab) => tab.id === activeTab) ?? auditTabs[0]
+  const selectedRangeLabel =
+    rangeOptions.find((option) => option.value === selectedRange)?.label ?? rangeOptions[0].label
+  const canGenerateExecutivePdf =
+    selectedReportType === 'executive-general' &&
+    Boolean(summary) &&
+    Boolean(riskDashboard) &&
+    !summaryLoading &&
+    !teleoperatorsLoading &&
+    !riskLoading
 
   const loadSummary = async () => {
     setSummaryLoading(true)
@@ -859,6 +1632,44 @@ export function AuditDashboardPage() {
     void loadTeleoperatorTable()
     void loadRiskDashboard()
   }, [])
+
+  const handleGenerateExecutivePdf = async () => {
+    if (!summary || !riskDashboard || selectedReportType !== 'executive-general') {
+      return
+    }
+
+    setReportPdfLoading(true)
+    setReportPdfError(null)
+
+    try {
+      const { downloadExecutiveAuditReportPdf, prepareExecutiveAuditReportPayload } = await import(
+        '@/features/auditoria/pdf/generators/executive-audit-report'
+      )
+
+      const payload = prepareExecutiveAuditReportPayload({
+        summary,
+        teleoperatorTable,
+        riskDashboard,
+        rangeLabel: selectedRangeLabel,
+        generatedBy: {
+          name: profile?.full_name ?? null,
+          email: profile?.email ?? null,
+          role: profile?.role ?? null,
+        },
+      })
+
+      await downloadExecutiveAuditReportPdf(payload)
+    } catch (error) {
+      console.error('[audit-pdf] Executive PDF generation failed', {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : null,
+        error,
+      })
+      setReportPdfError('No pudimos preparar el PDF en este momento.')
+    } finally {
+      setReportPdfLoading(false)
+    }
+  }
 
   return (
     <div className="space-y-5">
@@ -971,6 +1782,29 @@ export function AuditDashboardPage() {
               loading={riskLoading}
               error={riskError}
               onRetry={() => {
+                void loadRiskDashboard()
+              }}
+            />
+          ) : activeTab === 'reports' ? (
+            <ReportsTab
+              reportType={selectedReportType}
+              onSelectReportType={setSelectedReportType}
+              selectedRangeLabel={selectedRangeLabel}
+              summary={summary}
+              teleoperatorTable={teleoperatorTable}
+              riskDashboard={riskDashboard}
+              loading={summaryLoading || teleoperatorsLoading || riskLoading}
+              hasAnyData={Boolean(summary) || teleoperatorTable.length > 0 || Boolean(riskDashboard)}
+              hasAnyError={Boolean(summaryError || teleoperatorsError || riskError)}
+              pdfLoading={reportPdfLoading}
+              pdfError={reportPdfError}
+              canGeneratePdf={canGenerateExecutivePdf}
+              onGeneratePdf={() => {
+                void handleGenerateExecutivePdf()
+              }}
+              onRetry={() => {
+                void loadSummary()
+                void loadTeleoperatorTable()
                 void loadRiskDashboard()
               }}
             />
