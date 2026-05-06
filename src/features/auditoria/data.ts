@@ -37,6 +37,8 @@ export type AuditExecutiveSummary = {
   topUrgentBeneficiaries: AuditExecutiveRiskItem[]
 }
 
+type AuditActiveAssignmentRow = Record<string, unknown>
+
 type FollowupStatusRow = {
   status?: FollowupStatus | null
   days_since_last_valid_followup?: number | null
@@ -94,6 +96,128 @@ function calculatePercentage(numerator: number, denominator: number) {
   return Math.round((numerator / denominator) * 1000) / 10
 }
 
+async function fetchActivePrimaryAssignments() {
+  const client = assertSupabase()
+  const { data, error } = await client
+    .from('beneficiary_assignments')
+    .select(
+      `
+        beneficiary_id,
+        assigned_user_id,
+        beneficiary:beneficiaries (
+          id,
+          status,
+          beneficiary_followup_status (
+            status,
+            days_since_last_valid_followup
+          )
+        ),
+        assigned_user:profiles!beneficiary_assignments_assigned_user_id_fkey (
+          id,
+          email,
+          full_name
+        )
+      `,
+    )
+    .eq('status', 'active')
+    .eq('assignment_type', 'primary')
+
+  if (error) {
+    throw error
+  }
+
+  return ((data as AuditActiveAssignmentRow[]) ?? []).filter((row) => {
+    const beneficiary = pickSingle(
+      row.beneficiary as Record<string, unknown> | Record<string, unknown>[] | null,
+    )
+
+    return (beneficiary?.status as string | null) === 'active'
+  })
+}
+
+function buildTeleoperatorCoverageTable(rows: AuditActiveAssignmentRow[]) {
+  const tableMap = new Map<string, AuditTeleoperatorRankingItem>()
+
+  for (const row of rows) {
+    const assignedUser = pickSingle(
+      row.assigned_user as Record<string, unknown> | Record<string, unknown>[] | null,
+    )
+    const beneficiary = pickSingle(
+      row.beneficiary as Record<string, unknown> | Record<string, unknown>[] | null,
+    )
+
+    if (!assignedUser || !beneficiary?.id) {
+      continue
+    }
+
+    const teleoperatorId = String(assignedUser.id)
+    const status = resolveFollowupStatus(
+      beneficiary.beneficiary_followup_status as FollowupStatusRow | FollowupStatusRow[] | null,
+    )
+
+    const current =
+      tableMap.get(teleoperatorId) ??
+      {
+        teleoperatorId,
+        teleoperatorName:
+          (assignedUser.full_name as string | null)?.trim() ||
+          (assignedUser.email as string | null) ||
+          'Teleoperadora sin nombre',
+        teleoperatorEmail: (assignedUser.email as string | null) ?? null,
+        totalPortfolio: 0,
+        totalUpToDate: 0,
+        totalPending: 0,
+        totalUrgent: 0,
+        totalNoData: 0,
+        coveragePercentage: 0,
+      }
+
+    current.totalPortfolio += 1
+
+    if (status === 'up_to_date') {
+      current.totalUpToDate += 1
+    } else if (status === 'pending') {
+      current.totalPending += 1
+    } else if (status === 'urgent') {
+      current.totalUrgent += 1
+    } else {
+      current.totalNoData += 1
+    }
+
+    tableMap.set(teleoperatorId, current)
+  }
+
+  return Array.from(tableMap.values())
+    .map((item) => ({
+      ...item,
+      coveragePercentage: calculatePercentage(item.totalUpToDate, item.totalPortfolio),
+    }))
+    .sort((left, right) => {
+      if (right.totalUrgent !== left.totalUrgent) {
+        return right.totalUrgent - left.totalUrgent
+      }
+
+      if (right.totalNoData !== left.totalNoData) {
+        return right.totalNoData - left.totalNoData
+      }
+
+      if (left.coveragePercentage !== right.coveragePercentage) {
+        return left.coveragePercentage - right.coveragePercentage
+      }
+
+      if (right.totalPortfolio !== left.totalPortfolio) {
+        return right.totalPortfolio - left.totalPortfolio
+      }
+
+      return left.teleoperatorName.localeCompare(right.teleoperatorName)
+    })
+}
+
+export async function fetchTeleoperatorTable() {
+  const activeAssignments = await fetchActivePrimaryAssignments()
+  return buildTeleoperatorCoverageTable(activeAssignments)
+}
+
 export async function fetchAuditExecutiveSummary() {
   const client = assertSupabase()
 
@@ -116,49 +240,15 @@ export async function fetchAuditExecutiveSummary() {
         `,
       )
       .eq('status', 'active'),
-    client
-      .from('beneficiary_assignments')
-      .select(
-        `
-          beneficiary_id,
-          assigned_user_id,
-          beneficiary:beneficiaries (
-            id,
-            status,
-            beneficiary_followup_status (
-              status,
-              days_since_last_valid_followup
-            )
-          ),
-          assigned_user:profiles!beneficiary_assignments_assigned_user_id_fkey (
-            id,
-            email,
-            full_name
-          )
-        `,
-      )
-      .eq('status', 'active')
-      .eq('assignment_type', 'primary'),
+    fetchActivePrimaryAssignments(),
   ])
 
   if (beneficiariesResponse.error) {
     throw beneficiariesResponse.error
   }
 
-  if (assignmentsResponse.error) {
-    throw assignmentsResponse.error
-  }
-
   const activeBeneficiaries = ((beneficiariesResponse.data as Array<Record<string, unknown>>) ?? [])
-  const activeAssignments = ((assignmentsResponse.data as Array<Record<string, unknown>>) ?? []).filter(
-    (row) => {
-      const beneficiary = pickSingle(
-        row.beneficiary as Record<string, unknown> | Record<string, unknown>[] | null,
-      )
-
-      return (beneficiary?.status as string | null) === 'active'
-    },
-  )
+  const activeAssignments = assignmentsResponse
 
   const metrics = activeBeneficiaries.reduce<AuditExecutiveMetrics>(
     (accumulator, beneficiary) => {
@@ -195,7 +285,6 @@ export async function fetchAuditExecutiveSummary() {
     metrics.totalActiveBeneficiaries,
   )
 
-  const rankingMap = new Map<string, AuditTeleoperatorRankingItem>()
   const assignmentMap = new Map<
     string,
     {
@@ -208,79 +297,20 @@ export async function fetchAuditExecutiveSummary() {
     const assignedUser = pickSingle(
       row.assigned_user as Record<string, unknown> | Record<string, unknown>[] | null,
     )
-    const beneficiary = pickSingle(
-      row.beneficiary as Record<string, unknown> | Record<string, unknown>[] | null,
-    )
 
-    if (!assignedUser || !beneficiary?.id) {
+    if (!assignedUser) {
       continue
     }
-
-    const teleoperatorId = String(assignedUser.id)
-    const status = resolveFollowupStatus(
-      beneficiary.beneficiary_followup_status as FollowupStatusRow | FollowupStatusRow[] | null,
-    )
-
-    const current =
-      rankingMap.get(teleoperatorId) ??
-      {
-        teleoperatorId,
-        teleoperatorName:
-          (assignedUser.full_name as string | null)?.trim() ||
-          (assignedUser.email as string | null) ||
-          'Teleoperadora sin nombre',
-        teleoperatorEmail: (assignedUser.email as string | null) ?? null,
-        totalPortfolio: 0,
-        totalUpToDate: 0,
-        totalPending: 0,
-        totalUrgent: 0,
-        totalNoData: 0,
-        coveragePercentage: 0,
-      }
-
-    current.totalPortfolio += 1
-
-    if (status === 'up_to_date') {
-      current.totalUpToDate += 1
-    } else if (status === 'pending') {
-      current.totalPending += 1
-    } else if (status === 'urgent') {
-      current.totalUrgent += 1
-    } else {
-      current.totalNoData += 1
-    }
-
-    rankingMap.set(teleoperatorId, current)
     assignmentMap.set(String(row.beneficiary_id), {
-      teleoperatorName: current.teleoperatorName,
-      teleoperatorEmail: current.teleoperatorEmail,
+      teleoperatorName:
+        (assignedUser.full_name as string | null)?.trim() ||
+        (assignedUser.email as string | null) ||
+        'Teleoperadora sin nombre',
+      teleoperatorEmail: (assignedUser.email as string | null) ?? null,
     })
   }
 
-  const ranking = Array.from(rankingMap.values())
-    .map((item) => ({
-      ...item,
-      coveragePercentage: calculatePercentage(item.totalUpToDate, item.totalPortfolio),
-    }))
-    .sort((left, right) => {
-      if (right.totalUrgent !== left.totalUrgent) {
-        return right.totalUrgent - left.totalUrgent
-      }
-
-      if (right.totalNoData !== left.totalNoData) {
-        return right.totalNoData - left.totalNoData
-      }
-
-      if (left.coveragePercentage !== right.coveragePercentage) {
-        return left.coveragePercentage - right.coveragePercentage
-      }
-
-      if (right.totalPortfolio !== left.totalPortfolio) {
-        return right.totalPortfolio - left.totalPortfolio
-      }
-
-      return left.teleoperatorName.localeCompare(right.teleoperatorName)
-    })
+  const ranking = buildTeleoperatorCoverageTable(activeAssignments)
 
   const topUrgentBeneficiaries = activeBeneficiaries
     .filter((beneficiary) =>

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { Badge, Panel } from '@/components/ui'
 import {
   fetchAuditExecutiveSummary,
+  fetchTeleoperatorTable,
   type AuditExecutiveRiskItem,
   type AuditExecutiveSummary,
   type AuditTeleoperatorRankingItem,
@@ -54,6 +55,14 @@ type SummaryStateProps = {
     label: string
     onClick: () => void
   }
+}
+
+function getFriendlyAuditErrorMessage(scope: 'summary' | 'teleoperators') {
+  if (scope === 'summary') {
+    return 'No pudimos actualizar el resumen en este momento. Intenta nuevamente en unos instantes.'
+  }
+
+  return 'No pudimos actualizar la tabla de teleoperadoras en este momento. Intenta nuevamente en unos instantes.'
 }
 
 function SummaryState({ title, description, tone, action }: SummaryStateProps) {
@@ -129,6 +138,121 @@ function RankingTable({ items }: { items: AuditTeleoperatorRankingItem[] }) {
           ))}
         </tbody>
       </table>
+    </div>
+  )
+}
+
+function getCoverageBadgeTone(coveragePercentage: number): 'success' | 'warning' | 'danger' | 'muted' {
+  if (coveragePercentage >= 70) {
+    return 'success'
+  }
+
+  if (coveragePercentage >= 40) {
+    return 'warning'
+  }
+
+  if (coveragePercentage > 0) {
+    return 'danger'
+  }
+
+  return 'muted'
+}
+
+function TeleoperatorsTab({
+  items,
+  loading,
+  error,
+  onRetry,
+}: {
+  items: AuditTeleoperatorRankingItem[]
+  loading: boolean
+  error: string | null
+  onRetry: () => void
+}) {
+  if (loading) {
+    return (
+      <SummaryState
+        title="Cargando cumplimiento por teleoperadora"
+        description="Estamos consultando la cartera activa y el estado consolidado para construir la tabla de supervisión."
+        tone="info"
+      />
+    )
+  }
+
+  if (error) {
+    return (
+      <SummaryState
+        title="No fue posible cargar la tabla de teleoperadoras"
+        description={error}
+        tone="danger"
+        action={{
+          label: 'Reintentar',
+          onClick: onRetry,
+        }}
+      />
+    )
+  }
+
+  if (items.length === 0) {
+    return (
+      <SummaryState
+        title="No hay carteras activas para comparar"
+        description="Cuando existan asignaciones activas primarias, esta vista mostrará el cumplimiento de cartera asignada por teleoperadora."
+        tone="muted"
+      />
+    )
+  }
+
+  return (
+    <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-col gap-2 border-b border-slate-100 pb-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Tabla comparativa</p>
+          <h4 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+            Cumplimiento de cartera asignada
+          </h4>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            Ordenada por supervisión prioritaria: más urgentes, más sin datos y menor cobertura primero.
+          </p>
+        </div>
+        <Badge tone="warning">Sin autoría de llamadas AMAIA</Badge>
+      </div>
+
+      <div className="mt-4 overflow-x-auto">
+        <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
+          <thead>
+            <tr className="text-xs uppercase tracking-[0.18em] text-slate-500">
+              <th className="px-4 py-3 font-semibold">Teleoperadora</th>
+              <th className="px-4 py-3 font-semibold">Cartera</th>
+              <th className="px-4 py-3 font-semibold">Al día</th>
+              <th className="px-4 py-3 font-semibold">Pendientes</th>
+              <th className="px-4 py-3 font-semibold">Urgentes</th>
+              <th className="px-4 py-3 font-semibold">Sin datos</th>
+              <th className="px-4 py-3 font-semibold">Cobertura %</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {items.map((item) => (
+              <tr key={item.teleoperatorId} className="align-top text-slate-700">
+                <td className="px-4 py-4">
+                  <p className="font-semibold text-slate-950">{item.teleoperatorName}</p>
+                  <p className="mt-1 text-xs text-slate-500">{item.teleoperatorEmail ?? 'Sin correo visible'}</p>
+                </td>
+                <td className="px-4 py-4 font-medium">{item.totalPortfolio}</td>
+                <td className="px-4 py-4">{item.totalUpToDate}</td>
+                <td className="px-4 py-4">{item.totalPending}</td>
+                <td className="px-4 py-4">{item.totalUrgent}</td>
+                <td className="px-4 py-4">{item.totalNoData}</td>
+                <td className="px-4 py-4">
+                  <Badge tone={getCoverageBadgeTone(item.coveragePercentage)}>
+                    {item.coveragePercentage}%
+                  </Badge>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }
@@ -329,31 +453,45 @@ export function AuditDashboardPage() {
   const [selectedRange, setSelectedRange] = useState<DateRangeOption>('last-month')
   const [activeTab, setActiveTab] = useState<AuditTab>('summary')
   const [summary, setSummary] = useState<AuditExecutiveSummary | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [summaryLoading, setSummaryLoading] = useState(true)
+  const [summaryError, setSummaryError] = useState<string | null>(null)
+  const [teleoperatorTable, setTeleoperatorTable] = useState<AuditTeleoperatorRankingItem[]>([])
+  const [teleoperatorsLoading, setTeleoperatorsLoading] = useState(true)
+  const [teleoperatorsError, setTeleoperatorsError] = useState<string | null>(null)
 
   const currentTab = auditTabs.find((tab) => tab.id === activeTab) ?? auditTabs[0]
 
   const loadSummary = async () => {
-    setLoading(true)
-    setError(null)
+    setSummaryLoading(true)
+    setSummaryError(null)
 
     try {
       const nextSummary = await fetchAuditExecutiveSummary()
       setSummary(nextSummary)
-    } catch (fetchError) {
-      setError(
-        fetchError instanceof Error
-          ? fetchError.message
-          : 'No fue posible consultar el resumen ejecutivo.',
-      )
+    } catch {
+      setSummaryError(getFriendlyAuditErrorMessage('summary'))
     } finally {
-      setLoading(false)
+      setSummaryLoading(false)
+    }
+  }
+
+  const loadTeleoperatorTable = async () => {
+    setTeleoperatorsLoading(true)
+    setTeleoperatorsError(null)
+
+    try {
+      const nextTable = await fetchTeleoperatorTable()
+      setTeleoperatorTable(nextTable)
+    } catch {
+      setTeleoperatorsError(getFriendlyAuditErrorMessage('teleoperators'))
+    } finally {
+      setTeleoperatorsLoading(false)
     }
   }
 
   useEffect(() => {
     void loadSummary()
+    void loadTeleoperatorTable()
   }, [])
 
   return (
@@ -446,10 +584,19 @@ export function AuditDashboardPage() {
           {activeTab === 'summary' ? (
             <SummaryTab
               summary={summary}
-              loading={loading}
-              error={error}
+              loading={summaryLoading}
+              error={summaryError}
               onRetry={() => {
                 void loadSummary()
+              }}
+            />
+          ) : activeTab === 'teleoperators' ? (
+            <TeleoperatorsTab
+              items={teleoperatorTable}
+              loading={teleoperatorsLoading}
+              error={teleoperatorsError}
+              onRetry={() => {
+                void loadTeleoperatorTable()
               }}
             />
           ) : (
