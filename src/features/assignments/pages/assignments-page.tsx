@@ -26,7 +26,7 @@ const tabs: Array<{ id: AssignmentViewTab; label: string; description: string }>
   {
     id: 'teleoperator',
     label: 'Vista por teleoperadora',
-    description: 'Lectura detallada de beneficiarios asignados y ownership PRIMARY vigente.',
+    description: 'Lectura detallada de beneficiarios asignados y responsable oficial vigente.',
   },
 ]
 
@@ -190,7 +190,7 @@ export function AssignmentsPage() {
     return (
       <PageState
         title="Cargando carteras operacionales"
-        description="Estamos consolidando ownership PRIMARY, distribución de cartera y cobertura vigente para la lectura institucional."
+        description="Estamos preparando la lectura oficial de carteras, responsables y cobertura vigente para supervisión."
       />
     )
   }
@@ -208,7 +208,7 @@ export function AssignmentsPage() {
     return (
       <PageState
         title="Sin datos visibles"
-        description="No encontramos asignaciones activas PRIMARY para construir la vista operacional actual."
+        description="No encontramos carteras vigentes con responsable oficial para construir la vista operacional actual."
       />
     )
   }
@@ -226,15 +226,15 @@ export function AssignmentsPage() {
           <div className="max-w-4xl">
             <p className="text-sm uppercase tracking-[0.18em] text-slate-500">Carteras operacionales</p>
             <h2 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
-              Ownership institucional visible para supervisión y gerencia
+              Responsabilidad operacional visible para supervisión y gerencia
             </h2>
             <p className="mt-3 text-sm leading-7 text-slate-600">
-              Esta fase expone únicamente la lectura oficial de asignaciones activas `primary` como responsable oficial vigente. No habilita movimientos, soporte temporal ni reasignaciones.
+              Esta fase muestra la lectura oficial de carteras vigentes, responsables operacionales y cobertura consolidada. Solo lectura, sin cambios habilitados en esta etapa.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
               <Badge tone="info">Responsable oficial</Badge>
-              <Badge tone="muted">Sin mutaciones estructurales</Badge>
-              <Badge tone="success">Ownership PRIMARY vigente</Badge>
+              <Badge tone="muted">Solo lectura</Badge>
+              <Badge tone="success">Responsable oficial vigente</Badge>
             </div>
           </div>
 
@@ -263,14 +263,14 @@ export function AssignmentsPage() {
           eyebrow="KPIs"
           title="Carteras activas"
           value={String(data.summary.totalActivePortfolios)}
-          helper="Responsables oficiales con cartera PRIMARY visible en la lectura actual."
+          helper="Responsables oficiales con cartera vigente visible en la lectura actual."
           tone="info"
         />
         <AssignmentKpiCard
           eyebrow="KPIs"
           title="Beneficiarios asignados"
           value={String(data.summary.totalAssignedBeneficiaries)}
-          helper="Universo total cubierto por ownership PRIMARY activo."
+          helper="Universo total cubierto por responsables oficiales vigentes."
           tone="info"
         />
         <AssignmentKpiCard
@@ -284,12 +284,12 @@ export function AssignmentsPage() {
           eyebrow="KPIs"
           title="Teleoperadoras activas"
           value={String(data.summary.activeTeleoperators)}
-          helper="Perfiles operativos activos con cartera institucional visible."
+          helper="Responsables activas con cartera visible en la lectura institucional."
           tone="info"
         />
         <AssignmentKpiCard
           eyebrow="Alertas"
-          title="Más urgentes"
+          title="Mayor urgencia"
           value={data.summary.portfolioWithMostUrgent?.teleoperatorName ?? 'Sin dato'}
           helper={data.summary.portfolioWithMostUrgent
             ? `${data.summary.portfolioWithMostUrgent.totalUrgent} beneficiarios urgentes en la cartera actual.`
@@ -362,7 +362,7 @@ export function AssignmentsPage() {
 
         <div className="mt-4 grid gap-4 lg:grid-cols-[260px_260px_minmax(0,1fr)] lg:items-end">
           <label className="block">
-            <span className="text-sm font-medium text-slate-700">Estado followup</span>
+            <span className="text-sm font-medium text-slate-700">Estado de seguimiento</span>
             <select
               className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-900 outline-none transition focus:border-amber-400 focus:ring-4 focus:ring-amber-100"
               value={statusFilter}
@@ -390,7 +390,7 @@ export function AssignmentsPage() {
 
           <div className="rounded-[24px] border border-slate-200 bg-slate-50 px-4 py-4 text-sm leading-6 text-slate-600">
             Filtro activo de cobertura: <span className="font-semibold text-slate-900">{getCoverageFilterLabel(coverageFilter)}</span>.
-            La vista por teleoperadora mantiene ownership PRIMARY visible y usa el estado consolidado de seguimiento sin recalcularlo en frontend.
+            La vista usa la cartera oficial vigente y el estado consolidado de seguimiento.
           </div>
         </div>
       </Panel>

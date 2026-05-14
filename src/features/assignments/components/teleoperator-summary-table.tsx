@@ -24,7 +24,7 @@ export function TeleoperatorSummaryTable({
       <Panel className="p-8">
         <p className="text-lg font-semibold tracking-tight text-slate-950">Sin carteras visibles</p>
         <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-600">
-          Ajusta los filtros para revisar la distribución operacional vigente de ownership PRIMARY.
+          Ajusta los filtros para revisar la distribución operacional vigente de responsables oficiales.
         </p>
       </Panel>
     )
@@ -38,7 +38,7 @@ export function TeleoperatorSummaryTable({
           Distribución actual de responsables oficiales
         </h3>
         <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-600">
-          La tabla usa exclusivamente asignaciones activas `primary` como ownership institucional vigente. No habilita movimientos ni cambios estructurales.
+          La tabla usa la cartera oficial vigente para mostrar responsables, cobertura y carga operacional. No habilita cambios en esta fase.
         </p>
       </div>
 
@@ -53,7 +53,7 @@ export function TeleoperatorSummaryTable({
               <th className="px-4 py-4 font-medium">Urgentes</th>
               <th className="px-4 py-4 font-medium">Sin datos</th>
               <th className="px-4 py-4 font-medium">Cobertura</th>
-              <th className="px-4 py-4 font-medium">Lectura</th>
+              <th className="px-4 py-4 font-medium">Estado</th>
               <th className="px-6 py-4 font-medium">Acción</th>
             </tr>
           </thead>

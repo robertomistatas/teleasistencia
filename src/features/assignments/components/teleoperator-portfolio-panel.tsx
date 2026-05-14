@@ -27,7 +27,7 @@ export function TeleoperatorPortfolioPanel({
     return (
       <PageState
         title="Sin cartera seleccionada"
-        description="Selecciona una responsable operacional para revisar la cartera vigente y su ownership PRIMARY visible."
+        description="Selecciona una responsable operacional para revisar la cartera vigente y su responsable oficial visible."
       />
     )
   }
@@ -45,7 +45,7 @@ export function TeleoperatorPortfolioPanel({
               {portfolio.teleoperatorName}
             </h3>
             <p className="mt-3 text-sm leading-7 text-slate-600">
-              Esta lectura muestra cartera vigente con ownership PRIMARY activo. El rol visible corresponde a responsable oficial institucional, sin soporte temporal ni movimientos habilitados en esta fase.
+              Esta lectura muestra la cartera vigente, sus beneficiarios en seguimiento y el estado consolidado de cobertura. La responsable visible corresponde a la referencia oficial de esta etapa.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
               <Badge tone="info">Responsable oficial</Badge>
@@ -121,7 +121,7 @@ export function TeleoperatorPortfolioPanel({
 
                 <div className="mt-4 flex flex-wrap gap-2">
                   <Badge tone="info">Responsable oficial</Badge>
-                  <Badge tone="muted">PRIMARY vigente</Badge>
+                  <Badge tone="muted">Responsable oficial vigente</Badge>
                   {!item.isProfileActive && <Badge tone="warning">Perfil a revisar</Badge>}
                 </div>
 
@@ -148,7 +148,7 @@ export function TeleoperatorPortfolioPanel({
                 </div>
 
                 <div className="mt-5 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-500">
-                  <span>Asignación visible desde {formatDateTime(item.startsAt)}</span>
+                  <span>Responsabilidad visible desde {formatDateTime(item.startsAt)}</span>
                   <span className={meta.accentClass.replace('bg-', 'text-')}>
                     {meta.label}
                   </span>

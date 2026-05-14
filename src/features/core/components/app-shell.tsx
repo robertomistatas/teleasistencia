@@ -7,13 +7,16 @@ import { useAuth } from '@/features/auth/use-auth'
 import { cn } from '@/lib/cn'
 
 function buildBreadcrumb(pathname: string) {
+  const labelMap: Record<string, string> = {
+    assignments: 'Carteras operacionales',
+  }
   const parts = pathname.split('/').filter(Boolean)
 
   if (parts.length === 0) {
     return ['Inicio']
   }
 
-  return parts.map((part) => part.replace(/-/g, ' '))
+  return parts.map((part) => labelMap[part] ?? part.replace(/-/g, ' '))
 }
 
 export function AppShell({ children }: PropsWithChildren) {
