@@ -1,7 +1,7 @@
 import { Text, View } from '@react-pdf/renderer'
 
 import type { AuditReportKpi } from '@/features/auditoria/pdf/types/audit-report'
-import { getKpiToneColor, pdfStyles } from '@/features/auditoria/pdf/styles/brand'
+import { getKpiToneColor, getKpiToneSurface, pdfStyles } from '@/features/auditoria/pdf/styles/brand'
 
 export function PdfKpiCard({
   item,
@@ -24,8 +24,16 @@ export function PdfKpiCard({
 
   return (
     <View style={cardStyles} wrap={false}>
-      <View style={[pdfStyles.kpiBadge, { backgroundColor: getKpiToneColor(item.tone) }]}>
-        <Text style={pdfStyles.kpiBadgeLabel}>{badgeLabel}</Text>
+      <View
+        style={[
+          pdfStyles.kpiBadge,
+          {
+            backgroundColor: getKpiToneSurface(item.tone),
+            borderColor: getKpiToneColor(item.tone),
+          },
+        ]}
+      >
+        <Text style={[pdfStyles.kpiBadgeLabel, { color: getKpiToneColor(item.tone) }]}>{badgeLabel}</Text>
       </View>
       <View style={pdfStyles.kpiHeader}>
         <Text style={pdfStyles.kpiTitle}>{item.label}</Text>

@@ -39,7 +39,11 @@ export function PdfTable({
           key={row.key}
           style={
             rowIndex === rows.length - 1
-              ? [pdfStyles.tableRow, { borderBottomWidth: 0 }]
+              ? rowIndex % 2 === 1
+                ? [pdfStyles.tableRow, pdfStyles.tableRowAlt, { borderBottomWidth: 0 }]
+                : [pdfStyles.tableRow, { borderBottomWidth: 0 }]
+              : rowIndex % 2 === 1
+                ? [pdfStyles.tableRow, pdfStyles.tableRowAlt]
               : pdfStyles.tableRow
           }
         >

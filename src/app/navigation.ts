@@ -23,6 +23,16 @@ export const roleNavigation: Record<UserRole, NavItem[]> = {
       path: '/auditoria',
       description: 'Supervisión transversal',
     },
+    {
+      label: 'Carteras operacionales',
+      path: '/assignments',
+      description: 'Ownership y carga',
+    },
+    {
+      label: 'Usuarios',
+      path: '/users',
+      description: 'Perfiles operativos',
+    },
   ],
   admin: [
     {
@@ -39,6 +49,16 @@ export const roleNavigation: Record<UserRole, NavItem[]> = {
       label: 'Auditoría y reportes',
       path: '/auditoria',
       description: 'Revisión operativa',
+    },
+    {
+      label: 'Carteras operacionales',
+      path: '/assignments',
+      description: 'Ownership y carga',
+    },
+    {
+      label: 'Usuarios',
+      path: '/users',
+      description: 'Perfiles operativos',
     },
   ],
   teleoperadora: [

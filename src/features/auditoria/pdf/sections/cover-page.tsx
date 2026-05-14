@@ -11,11 +11,18 @@ import { pdfStyles } from '@/features/auditoria/pdf/styles/brand'
 export function CoverPage({ payload, logoSrc }: { payload: AuditReportPayload; logoSrc: string | null | undefined }) {
   return (
     <Page size="A4" style={pdfStyles.coverPage}>
-      {logoSrc ? (
-        <View style={pdfStyles.coverLogoWrap}>
-          <Image src={logoSrc} style={pdfStyles.coverLogo} />
-        </View>
-      ) : null}
+      <View style={pdfStyles.coverBrandBlock}>
+        {logoSrc ? (
+          <View style={pdfStyles.coverLogoWrap}>
+            <Image src={logoSrc} style={pdfStyles.coverLogo} />
+          </View>
+        ) : null}
+      </View>
+
+      <View style={pdfStyles.coverAccentRow}>
+        <View style={pdfStyles.coverRule} />
+        <View style={pdfStyles.coverRuleSoft} />
+      </View>
 
       <Text style={pdfStyles.coverEyebrow}>Informe institucional</Text>
       <Text style={pdfStyles.coverTitle}>{payload.metadata.title}</Text>

@@ -5,6 +5,7 @@ import {
   RequireAuth,
   RequireRole,
 } from '@/features/core/components/route-guards'
+import { AssignmentsPage } from '@/features/assignments/pages/assignments-page'
 import { NotFoundPage } from '@/features/core/pages/not-found-page'
 import { PlaceholderPage } from '@/features/core/pages/placeholder-page'
 import { RoleHomeRedirect } from '@/features/core/pages/role-home-redirect'
@@ -14,6 +15,7 @@ import { SignInPage } from '@/features/auth/sign-in-page'
 import { BeneficiaryDetailPage } from '@/features/teleoperadora/pages/beneficiary-detail-page'
 import { PortfolioPage } from '@/features/teleoperadora/pages/portfolio-page'
 import { TeleoperatorHomePage } from '@/features/teleoperadora/pages/teleoperator-home-page'
+import { UsersPage } from '@/features/users/pages/users-page'
 
 function ShellRoute() {
   const location = useLocation()
@@ -47,6 +49,24 @@ export function AppRouter() {
           element={
             <RequireRole allowedRoles={['admin', 'super_admin']}>
               <AuditDashboardPage />
+            </RequireRole>
+          }
+        />
+
+        <Route
+          path="/users"
+          element={
+            <RequireRole allowedRoles={['admin', 'super_admin']}>
+              <UsersPage />
+            </RequireRole>
+          }
+        />
+
+        <Route
+          path="/assignments"
+          element={
+            <RequireRole allowedRoles={['admin', 'super_admin']}>
+              <AssignmentsPage />
             </RequireRole>
           }
         />

@@ -6,11 +6,11 @@ export function AuditPdfHeader({ title, generatedAtLabel }: { title: string; gen
   return (
     <View fixed style={pdfStyles.header}>
       <View style={pdfStyles.headerBrandBlock}>
-        <Text style={pdfStyles.headerTitle}>Mistatas · Auditoría</Text>
+        <Text style={pdfStyles.headerTitle}>Mistatas · Informe ejecutivo</Text>
         <Text style={pdfStyles.headerDocumentTitle}>{title}</Text>
       </View>
       <View style={pdfStyles.headerMetaBlock}>
-        <Text style={pdfStyles.headerMeta}>Generado el {generatedAtLabel}</Text>
+        <Text style={pdfStyles.headerMeta}>{generatedAtLabel}</Text>
       </View>
     </View>
   )
