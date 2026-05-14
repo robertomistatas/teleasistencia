@@ -27,6 +27,12 @@ export type AssignmentPortfolioBeneficiary = {
   isProfileActive: boolean
 }
 
+export type AssignmentTeleoperatorOption = {
+  id: string
+  fullName: string
+  email: string | null
+}
+
 export type AssignmentPortfolioSummary = {
   teleoperatorId: string
   teleoperatorName: string
@@ -53,4 +59,15 @@ export type AssignmentOverviewData = {
   summary: AssignmentExecutiveSummary
   portfolios: AssignmentPortfolioSummary[]
   beneficiaries: AssignmentPortfolioBeneficiary[]
+}
+
+export type ReassignBeneficiaryPrimaryAssignmentResult = {
+  beneficiaryId: string
+  previousAssignmentId: string
+  previousAssignedUserId: string
+  previousAssignedUserName: string
+  newAssignmentId: string
+  newAssignedUserId: string
+  newAssignedUserName: string
+  effectiveAt: string
 }

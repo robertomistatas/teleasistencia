@@ -5,6 +5,8 @@ import type {
   AssignmentOverviewData,
   AssignmentPortfolioBeneficiary,
   AssignmentPortfolioSummary,
+  AssignmentTeleoperatorOption,
+  ReassignBeneficiaryPrimaryAssignmentResult,
 } from '@/features/assignments/types'
 import {
   calculatePercentage,
@@ -24,6 +26,17 @@ type AssignmentRow = {
   assignment_type: string
   beneficiary: Record<string, unknown> | Record<string, unknown>[] | null
   assigned_user: Record<string, unknown> | Record<string, unknown>[] | null
+}
+
+type ReassignRpcRow = {
+  beneficiary_id: string
+  previous_assignment_id: string
+  previous_assigned_user_id: string
+  previous_assigned_user_name: string
+  new_assignment_id: string
+  new_assigned_user_id: string
+  new_assigned_user_name: string
+  effective_at: string
 }
 
 function assertSupabase() {
@@ -273,4 +286,107 @@ export async function fetchAssignmentsOverview(): Promise<AssignmentOverviewData
       return left.beneficiaryName.localeCompare(right.beneficiaryName)
     }),
   }
+}
+
+export async function fetchActiveTeleoperatorOptions(
+  excludeUserId?: string,
+): Promise<AssignmentTeleoperatorOption[]> {
+  const client = assertSupabase()
+  const query = client
+    .from('profiles')
+    .select('id, full_name, email')
+    .eq('role', 'teleoperadora')
+    .eq('is_active', true)
+    .order('full_name', { ascending: true })
+
+  const { data, error } = excludeUserId
+    ? await query.neq('id', excludeUserId)
+    : await query
+
+  if (error) {
+    throw error
+  }
+
+  return ((data as Array<Record<string, unknown>>) ?? []).map((row) => ({
+    id: String(row.id),
+    fullName: getOperationalDisplayName({
+      full_name: (row.full_name as string | null) ?? null,
+      email: (row.email as string | null) ?? null,
+    }),
+    email: (row.email as string | null) ?? null,
+  }))
+}
+
+export async function reassignBeneficiaryPrimaryAssignment({
+  beneficiaryId,
+  newAssignedUserId,
+  reason,
+}: {
+  beneficiaryId: string
+  newAssignedUserId: string
+  reason: string
+}): Promise<ReassignBeneficiaryPrimaryAssignmentResult> {
+  const client = assertSupabase()
+  const { data, error } = await client.rpc('reassign_beneficiary_primary_assignment', {
+    p_beneficiary_id: beneficiaryId,
+    p_new_assigned_user_id: newAssignedUserId,
+    p_reason: reason,
+  })
+
+  if (error) {
+    throw error
+  }
+
+  const row = Array.isArray(data) ? data[0] : data
+
+  if (!row) {
+    throw new Error('No fue posible confirmar el cambio de responsable.')
+  }
+
+  const value = row as ReassignRpcRow
+
+  return {
+    beneficiaryId: value.beneficiary_id,
+    previousAssignmentId: value.previous_assignment_id,
+    previousAssignedUserId: value.previous_assigned_user_id,
+    previousAssignedUserName: value.previous_assigned_user_name,
+    newAssignmentId: value.new_assignment_id,
+    newAssignedUserId: value.new_assigned_user_id,
+    newAssignedUserName: value.new_assigned_user_name,
+    effectiveAt: value.effective_at,
+  }
+}
+
+export function getReassignResponsibleErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : ''
+
+  if (!message) {
+    return 'No fue posible cambiar la responsable en este momento. Intenta nuevamente.'
+  }
+
+  if (message.includes('Solo super_admin')) {
+    return 'Solo una cuenta super_admin puede ejecutar este cambio.'
+  }
+
+  if (message.includes('La nueva responsable debe ser distinta')) {
+    return 'Selecciona una responsable distinta a la actual.'
+  }
+
+  if (message.includes('debe tener rol teleoperadora')) {
+    return 'La nueva responsable debe ser una teleoperadora activa.'
+  }
+
+  if (message.includes('debe estar activa')) {
+    return 'La nueva responsable debe estar activa para recibir esta cartera.'
+  }
+
+  if (message.includes('motivo del cambio es obligatorio')) {
+    return 'Debes ingresar un motivo para continuar.'
+  }
+
+  if (message.includes('no tiene una asignacion oficial vigente')) {
+    return 'Este beneficiario ya no tiene una responsable oficial vigente visible.'
+  }
+
+  return message
 }

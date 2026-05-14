@@ -1,4 +1,4 @@
-import { Badge, PageState, Panel } from '@/components/ui'
+import { Badge, PageState, Panel, secondaryButtonClass } from '@/components/ui'
 import { StatusBadge } from '@/features/teleoperadora/components/status-badge'
 import { followupStatusMeta } from '@/features/teleoperadora/data'
 import type {
@@ -18,10 +18,14 @@ export function TeleoperatorPortfolioPanel({
   portfolio,
   beneficiaries,
   averagePortfolioSize,
+  canChangeResponsible,
+  onRequestChangeResponsible,
 }: {
   portfolio: AssignmentPortfolioSummary | null
   beneficiaries: AssignmentPortfolioBeneficiary[]
   averagePortfolioSize: number
+  canChangeResponsible: boolean
+  onRequestChangeResponsible: (beneficiary: AssignmentPortfolioBeneficiary) => void
 }) {
   if (!portfolio) {
     return (
@@ -149,9 +153,20 @@ export function TeleoperatorPortfolioPanel({
 
                 <div className="mt-5 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-500">
                   <span>Responsabilidad visible desde {formatDateTime(item.startsAt)}</span>
-                  <span className={meta.accentClass.replace('bg-', 'text-')}>
-                    {meta.label}
-                  </span>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span className={meta.accentClass.replace('bg-', 'text-')}>
+                      {meta.label}
+                    </span>
+                    {canChangeResponsible && (
+                      <button
+                        type="button"
+                        className={secondaryButtonClass}
+                        onClick={() => onRequestChangeResponsible(item)}
+                      >
+                        Cambiar responsable
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             </Panel>

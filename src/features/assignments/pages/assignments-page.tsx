@@ -2,13 +2,17 @@ import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 
 import { Badge, PageState, Panel, secondaryButtonClass } from '@/components/ui'
 import { fetchAssignmentsOverview } from '@/features/assignments/data'
+import { ChangeResponsibleDialog } from '@/features/assignments/components/change-responsible-dialog'
 import { AssignmentKpiCard } from '@/features/assignments/components/assignment-kpi-card'
 import { TeleoperatorPortfolioPanel } from '@/features/assignments/components/teleoperator-portfolio-panel'
 import { TeleoperatorSummaryTable } from '@/features/assignments/components/teleoperator-summary-table'
+import { useAuth } from '@/features/auth/use-auth'
 import type {
   AssignmentCoverageFilter,
   AssignmentOverviewData,
+  AssignmentPortfolioBeneficiary,
   AssignmentViewTab,
+  ReassignBeneficiaryPrimaryAssignmentResult,
 } from '@/features/assignments/types'
 import {
   formatPercentage,
@@ -46,9 +50,11 @@ const coverageFilterOptions: Array<{ value: AssignmentCoverageFilter; label: str
 ]
 
 export function AssignmentsPage() {
+  const { profile } = useAuth()
   const [data, setData] = useState<AssignmentOverviewData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
   const [tab, setTab] = useState<AssignmentViewTab>('global')
   const [teleoperatorSearch, setTeleoperatorSearch] = useState('')
   const [beneficiarySearch, setBeneficiarySearch] = useState('')
@@ -56,6 +62,9 @@ export function AssignmentsPage() {
   const [statusFilter, setStatusFilter] = useState<'all' | FollowupStatus>('all')
   const [communeFilter, setCommuneFilter] = useState('all')
   const [selectedTeleoperatorId, setSelectedTeleoperatorId] = useState<string | null>(null)
+  const [selectedBeneficiaryForChange, setSelectedBeneficiaryForChange] =
+    useState<AssignmentPortfolioBeneficiary | null>(null)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const deferredTeleoperatorSearch = useDeferredValue(teleoperatorSearch)
   const deferredBeneficiarySearch = useDeferredValue(beneficiarySearch)
 
@@ -99,7 +108,7 @@ export function AssignmentsPage() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [reloadKey])
 
   const filteredPortfolios = useMemo(() => {
     if (!data) {
@@ -186,6 +195,19 @@ export function AssignmentsPage() {
     return data.summary.totalAssignedBeneficiaries / data.portfolios.length
   }, [data])
 
+  const canExecuteReassignment = profile?.role === 'super_admin'
+  const isAdminReadOnly = profile?.role === 'admin'
+
+  const handleReassignmentSuccess = (result: ReassignBeneficiaryPrimaryAssignmentResult) => {
+    setSuccessMessage(
+      `Responsable actualizada: ${result.previousAssignedUserName} -> ${result.newAssignedUserName}. El historial quedó conservado.`,
+    )
+    setSelectedBeneficiaryForChange(null)
+    setSelectedTeleoperatorId(result.newAssignedUserId)
+    setTab('teleoperator')
+    setReloadKey((currentValue) => currentValue + 1)
+  }
+
   if (loading) {
     return (
       <PageState
@@ -221,6 +243,24 @@ export function AssignmentsPage() {
 
   return (
     <div className="space-y-5">
+      {successMessage && (
+        <Panel className="border border-emerald-200 bg-emerald-50 p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-emerald-800">Cambio confirmado</p>
+              <p className="mt-2 text-sm leading-7 text-emerald-900">{successMessage}</p>
+            </div>
+            <button
+              type="button"
+              className={secondaryButtonClass}
+              onClick={() => setSuccessMessage(null)}
+            >
+              Ocultar
+            </button>
+          </div>
+        </Panel>
+      )}
+
       <Panel className="p-6 sm:p-7">
         <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
           <div className="max-w-4xl">
@@ -407,6 +447,15 @@ export function AssignmentsPage() {
         />
       ) : (
         <div className="space-y-5">
+          {isAdminReadOnly && (
+            <Panel className="border border-amber-200 bg-amber-50 p-5">
+              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-amber-800">Solo lectura</p>
+              <p className="mt-2 text-sm leading-7 text-amber-900">
+                En esta fase, el cambio de responsable está reservado a cuentas super_admin. Como admin puedes revisar la cartera, pero no ejecutar el movimiento.
+              </p>
+            </Panel>
+          )}
+
           <Panel className="p-6">
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1.3fr)_auto] lg:items-end">
               <label className="block">
@@ -438,8 +487,21 @@ export function AssignmentsPage() {
             portfolio={selectedPortfolio}
             beneficiaries={filteredBeneficiaries}
             averagePortfolioSize={averagePortfolioSize}
+            canChangeResponsible={canExecuteReassignment}
+            onRequestChangeResponsible={(beneficiary) => {
+              setSuccessMessage(null)
+              setSelectedBeneficiaryForChange(beneficiary)
+            }}
           />
         </div>
+      )}
+
+      {selectedBeneficiaryForChange && canExecuteReassignment && (
+        <ChangeResponsibleDialog
+          beneficiary={selectedBeneficiaryForChange}
+          onClose={() => setSelectedBeneficiaryForChange(null)}
+          onSuccess={handleReassignmentSuccess}
+        />
       )}
     </div>
   )
