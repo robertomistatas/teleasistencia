@@ -15,6 +15,7 @@ import { SignInPage } from '@/features/auth/sign-in-page'
 import { BeneficiaryDetailPage } from '@/features/teleoperadora/pages/beneficiary-detail-page'
 import { PortfolioPage } from '@/features/teleoperadora/pages/portfolio-page'
 import { TeleoperatorHomePage } from '@/features/teleoperadora/pages/teleoperator-home-page'
+import { BeneficiaryImportPage } from '@/features/imports/pages/beneficiary-import-page'
 import { UsersPage } from '@/features/users/pages/users-page'
 
 function ShellRoute() {
@@ -67,6 +68,15 @@ export function AppRouter() {
           element={
             <RequireRole allowedRoles={['admin', 'super_admin']}>
               <AssignmentsPage />
+            </RequireRole>
+          }
+        />
+
+        <Route
+          path="/imports/beneficiaries"
+          element={
+            <RequireRole allowedRoles={['admin', 'super_admin']}>
+              <BeneficiaryImportPage />
             </RequireRole>
           }
         />

@@ -29,6 +29,11 @@ export const roleNavigation: Record<UserRole, NavItem[]> = {
       description: 'Ownership y carga',
     },
     {
+      label: 'Importaciones',
+      path: '/imports/beneficiaries',
+      description: 'Beneficiarios y contactos',
+    },
+    {
       label: 'Usuarios',
       path: '/users',
       description: 'Perfiles operativos',
@@ -54,6 +59,11 @@ export const roleNavigation: Record<UserRole, NavItem[]> = {
       label: 'Carteras operacionales',
       path: '/assignments',
       description: 'Ownership y carga',
+    },
+    {
+      label: 'Importaciones',
+      path: '/imports/beneficiaries',
+      description: 'Beneficiarios y contactos',
     },
     {
       label: 'Usuarios',
