@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { getOperationalDisplayName } from '@/features/assignments/utils'
 import type {
   BeneficiaryContact,
   CallInteraction,
@@ -11,6 +12,7 @@ import type {
 export type PortfolioItem = {
   assignmentId: string
   beneficiaryId: string
+  assignmentType: 'primary' | 'support'
   beneficiary: MinimalBeneficiary
   followupStatus: FollowupStatus
   lastValidFollowupAt: string | null
@@ -18,6 +20,7 @@ export type PortfolioItem = {
   lastInteractionAt: string | null
   lastInteractionLabel: string | null
   startsAt: string
+  primaryResponsibleName: string | null
 }
 
 export type TeleoperatorBeneficiaryDetail = {
@@ -31,6 +34,7 @@ export type TeleoperatorBeneficiaryDetail = {
     assignmentType: string
     startsAt: string
     notes: string | null
+    primaryResponsibleName: string | null
   }
   status: {
     status: FollowupStatus
@@ -409,6 +413,7 @@ export async function fetchTeleoperatorPortfolio(userId: string) {
         id,
         beneficiary_id,
         starts_at,
+        assignment_type,
         beneficiary:beneficiaries (
           id,
           rut_raw,
@@ -442,7 +447,7 @@ export async function fetchTeleoperatorPortfolio(userId: string) {
   let coverageMap = new Map<string, DerivedCoverage>()
 
   if (beneficiaryIds.length > 0) {
-    const [callsResponse, followupsResponse] = await Promise.all([
+    const [callsResponse, followupsResponse, primaryAssignmentsResponse] = await Promise.all([
       client
         .from('call_interactions')
         .select('beneficiary_id, started_at, call_date, amaia_result_raw, duration_seconds')
@@ -451,6 +456,21 @@ export async function fetchTeleoperatorPortfolio(userId: string) {
         .from('followup_events')
         .select('beneficiary_id, occurred_at, event_type')
         .in('beneficiary_id', beneficiaryIds),
+      client
+        .from('beneficiary_assignments')
+        .select(
+          `
+            beneficiary_id,
+            assigned_user:profiles!beneficiary_assignments_assigned_user_id_fkey (
+              id,
+              full_name,
+              email
+            )
+          `,
+        )
+        .in('beneficiary_id', beneficiaryIds)
+        .eq('assignment_type', 'primary')
+        .eq('status', 'active'),
     ])
 
     if (callsResponse.error) {
@@ -459,6 +479,10 @@ export async function fetchTeleoperatorPortfolio(userId: string) {
 
     if (followupsResponse.error) {
       throw followupsResponse.error
+    }
+
+    if (primaryAssignmentsResponse.error) {
+      throw primaryAssignmentsResponse.error
     }
 
     latestInteractionMap = buildLatestInteractionMap(
@@ -484,65 +508,91 @@ export async function fetchTeleoperatorPortfolio(userId: string) {
         event_type: FollowupEventType
       }>,
     )
+
+    const primaryResponsibleMap = new Map<string, string | null>()
+
+    for (const row of ((primaryAssignmentsResponse.data as Array<Record<string, unknown>>) ?? [])) {
+      const assignedUser = pickSingle(
+        row.assigned_user as Record<string, unknown> | Record<string, unknown>[] | null,
+      )
+
+      primaryResponsibleMap.set(
+        String(row.beneficiary_id),
+        assignedUser
+          ? getOperationalDisplayName({
+              full_name: (assignedUser.full_name as string | null) ?? null,
+              email: (assignedUser.email as string | null) ?? null,
+            })
+          : null,
+      )
+    }
+
+    const items = ((data as Array<Record<string, unknown>>) ?? []).map((row) => {
+      const beneficiaryRaw = pickSingle(row.beneficiary as Record<string, unknown> | Record<string, unknown>[] | null)
+      const backendCoverage = beneficiaryRaw
+        ? pickBackendCoverage(
+            beneficiaryRaw.beneficiary_followup_status as
+              | BackendCoverageRow
+              | BackendCoverageRow[]
+              | null,
+          )
+        : null
+      const latestInteraction = latestInteractionMap.get(String(row.beneficiary_id))
+      const fallbackCoverage = coverageMap.get(String(row.beneficiary_id)) ?? {
+        status: 'no_data',
+        lastValidFollowupAt: null,
+        daysSinceLastValidFollowup: null,
+      }
+      const resolvedCoverage = backendCoverage ?? fallbackCoverage
+
+      return {
+        assignmentId: String(row.id),
+        beneficiaryId: String(row.beneficiary_id),
+        assignmentType: String(row.assignment_type) as PortfolioItem['assignmentType'],
+        beneficiary: {
+          id: String(beneficiaryRaw?.id),
+          rutRaw: (beneficiaryRaw?.rut_raw as string | null) ?? null,
+          fullName: buildBeneficiaryName(beneficiaryRaw ?? {}),
+          commune: (beneficiaryRaw?.commune as string | null) ?? null,
+          region: (beneficiaryRaw?.region as string | null) ?? null,
+          status: ((beneficiaryRaw?.status as string | null) ?? 'active') as MinimalBeneficiary['status'],
+        },
+        followupStatus: resolvedCoverage.status,
+        lastValidFollowupAt: resolvedCoverage.lastValidFollowupAt,
+        daysSinceLastValidFollowup: resolvedCoverage.daysSinceLastValidFollowup,
+        lastInteractionAt: latestInteraction?.at ?? null,
+        lastInteractionLabel: latestInteraction?.label ?? null,
+        startsAt: String(row.starts_at),
+        primaryResponsibleName: primaryResponsibleMap.get(String(row.beneficiary_id)) ?? null,
+      } satisfies PortfolioItem
+    })
+
+    return items.sort(
+      (left, right) => {
+        const statusDelta = getStatusRank(left.followupStatus) - getStatusRank(right.followupStatus)
+
+        if (statusDelta !== 0) {
+          return statusDelta
+        }
+
+        if (left.assignmentType !== right.assignmentType) {
+          return left.assignmentType === 'primary' ? -1 : 1
+        }
+
+        const interactionDelta =
+          getComparableTimestamp(right.lastInteractionAt) -
+          getComparableTimestamp(left.lastInteractionAt)
+
+        if (interactionDelta !== 0) {
+          return interactionDelta
+        }
+
+        return getComparableTimestamp(right.startsAt) - getComparableTimestamp(left.startsAt)
+      },
+    )
   }
 
-  const items = ((data as Array<Record<string, unknown>>) ?? []).map((row) => {
-    const beneficiaryRaw = pickSingle(row.beneficiary as Record<string, unknown> | Record<string, unknown>[] | null)
-    const backendCoverage = beneficiaryRaw
-      ? pickBackendCoverage(
-          beneficiaryRaw.beneficiary_followup_status as
-            | BackendCoverageRow
-            | BackendCoverageRow[]
-            | null,
-        )
-      : null
-    const latestInteraction = latestInteractionMap.get(String(row.beneficiary_id))
-    const fallbackCoverage = coverageMap.get(String(row.beneficiary_id)) ?? {
-      status: 'no_data',
-      lastValidFollowupAt: null,
-      daysSinceLastValidFollowup: null,
-    }
-    const resolvedCoverage = backendCoverage ?? fallbackCoverage
-
-    return {
-      assignmentId: String(row.id),
-      beneficiaryId: String(row.beneficiary_id),
-      beneficiary: {
-        id: String(beneficiaryRaw?.id),
-        rutRaw: (beneficiaryRaw?.rut_raw as string | null) ?? null,
-        fullName: buildBeneficiaryName(beneficiaryRaw ?? {}),
-        commune: (beneficiaryRaw?.commune as string | null) ?? null,
-        region: (beneficiaryRaw?.region as string | null) ?? null,
-        status: ((beneficiaryRaw?.status as string | null) ?? 'active') as MinimalBeneficiary['status'],
-      },
-      followupStatus: resolvedCoverage.status,
-      lastValidFollowupAt: resolvedCoverage.lastValidFollowupAt,
-      daysSinceLastValidFollowup: resolvedCoverage.daysSinceLastValidFollowup,
-      lastInteractionAt: latestInteraction?.at ?? null,
-      lastInteractionLabel: latestInteraction?.label ?? null,
-      startsAt: String(row.starts_at),
-    } satisfies PortfolioItem
-  })
-
-  return items.sort(
-    (left, right) => {
-      const statusDelta = getStatusRank(left.followupStatus) - getStatusRank(right.followupStatus)
-
-      if (statusDelta !== 0) {
-        return statusDelta
-      }
-
-      const interactionDelta =
-        getComparableTimestamp(right.lastInteractionAt) -
-        getComparableTimestamp(left.lastInteractionAt)
-
-      if (interactionDelta !== 0) {
-        return interactionDelta
-      }
-
-      return getComparableTimestamp(right.startsAt) - getComparableTimestamp(left.startsAt)
-    },
-  )
+  return []
 }
 
 export async function fetchTeleoperatorBeneficiaryDetail(
@@ -593,7 +643,7 @@ export async function fetchTeleoperatorBeneficiaryDetail(
       | null,
   )
 
-  const [contactsResponse, callsResponse, followupsResponse, statusResponse] = await Promise.all([
+  const [contactsResponse, callsResponse, followupsResponse, statusResponse, primaryAssignmentResponse] = await Promise.all([
     client
       .from('beneficiary_contacts')
       .select(
@@ -624,6 +674,21 @@ export async function fetchTeleoperatorBeneficiaryDetail(
       .select('status, last_valid_followup_at, days_since_last_valid_followup')
       .eq('beneficiary_id', beneficiaryId)
       .maybeSingle(),
+    client
+      .from('beneficiary_assignments')
+      .select(
+        `
+          assigned_user:profiles!beneficiary_assignments_assigned_user_id_fkey (
+            id,
+            full_name,
+            email
+          )
+        `,
+      )
+      .eq('beneficiary_id', beneficiaryId)
+      .eq('assignment_type', 'primary')
+      .eq('status', 'active')
+      .maybeSingle(),
   ])
 
   if (contactsResponse.error) {
@@ -642,6 +707,10 @@ export async function fetchTeleoperatorBeneficiaryDetail(
     throw statusResponse.error
   }
 
+  if (primaryAssignmentResponse.error) {
+    throw primaryAssignmentResponse.error
+  }
+
   const derivedCoverage = deriveCoverageFromSources(
     (callsResponse.data ?? []) as Array<{
       duration_seconds?: number | null
@@ -655,6 +724,12 @@ export async function fetchTeleoperatorBeneficiaryDetail(
   )
   const backendCoverage = pickBackendCoverage(statusResponse.data as BackendCoverageRow | null)
   const resolvedCoverage = backendCoverage ?? derivedCoverage
+  const primaryAssignment = pickSingle(
+    (primaryAssignmentResponse.data as Record<string, unknown> | null)?.assigned_user as
+      | Record<string, unknown>
+      | Record<string, unknown>[]
+      | null,
+  )
 
   return {
     assignmentId: String((assignment as Record<string, unknown>).id),
@@ -673,6 +748,12 @@ export async function fetchTeleoperatorBeneficiaryDetail(
       assignmentType: String((assignment as Record<string, unknown>).assignment_type),
       startsAt: String((assignment as Record<string, unknown>).starts_at),
       notes: ((assignment as Record<string, unknown>).notes as string | null) ?? null,
+      primaryResponsibleName: primaryAssignment
+        ? getOperationalDisplayName({
+            full_name: (primaryAssignment.full_name as string | null) ?? null,
+            email: (primaryAssignment.email as string | null) ?? null,
+          })
+        : null,
     },
     status: {
       status: resolvedCoverage.status,

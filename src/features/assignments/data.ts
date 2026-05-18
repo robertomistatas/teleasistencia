@@ -1,11 +1,14 @@
 import { supabase } from '@/lib/supabase'
 import type { FollowupStatus } from '@/lib/types'
 import type {
+  AddSupportAssignmentResult,
+  AssignmentHistoryItem,
   AssignmentExecutiveSummary,
   AssignmentOverviewData,
   AssignmentPortfolioBeneficiary,
   AssignmentPortfolioSummary,
   AssignmentTeleoperatorOption,
+  EndSupportAssignmentResult,
   ReassignBeneficiaryPrimaryAssignmentResult,
 } from '@/features/assignments/types'
 import {
@@ -24,6 +27,7 @@ type AssignmentRow = {
   beneficiary_id: string
   starts_at: string
   assignment_type: string
+  reason?: string | null
   beneficiary: Record<string, unknown> | Record<string, unknown>[] | null
   assigned_user: Record<string, unknown> | Record<string, unknown>[] | null
 }
@@ -37,6 +41,44 @@ type ReassignRpcRow = {
   new_assigned_user_id: string
   new_assigned_user_name: string
   effective_at: string
+}
+
+type AddSupportRpcRow = {
+  assignment_id: string
+  beneficiary_id: string
+  support_user_id: string
+  support_user_name: string
+  primary_user_id: string
+  primary_user_name: string
+  starts_at: string
+}
+
+type EndSupportRpcRow = {
+  assignment_id: string
+  beneficiary_id: string
+  support_user_id: string
+  support_user_name: string
+  ended_at: string
+}
+
+type AssignmentHistoryRpcRow = {
+  assignment_id: string
+  beneficiary_id: string
+  assignment_type: string
+  status: string
+  assigned_user_id: string
+  assigned_user_name: string
+  assigned_user_email?: string | null
+  starts_at: string
+  ends_at?: string | null
+  reason?: string | null
+  ended_reason?: string | null
+  created_by?: string | null
+  created_by_name?: string | null
+  ended_by?: string | null
+  ended_by_name?: string | null
+  created_at: string
+  updated_at: string
 }
 
 function assertSupabase() {
@@ -92,12 +134,17 @@ function resolveLastValidFollowupAt(
 
 function buildExecutiveSummary(portfolios: AssignmentPortfolioSummary[]): AssignmentExecutiveSummary {
   const totalAssignedBeneficiaries = portfolios.reduce((sum, item) => sum + item.totalPortfolio, 0)
-  const totalCoverage = portfolios.reduce((sum, item) => sum + item.coveragePercentage, 0)
-  const averageCoveragePercentage = portfolios.length > 0
-    ? Math.round(totalCoverage / portfolios.length)
+  const totalActiveSupportAssignments = portfolios.reduce(
+    (sum, item) => sum + item.totalSupportAssignments,
+    0,
+  )
+  const primaryPortfolios = portfolios.filter((item) => item.totalPortfolio > 0)
+  const totalCoverage = primaryPortfolios.reduce((sum, item) => sum + item.coveragePercentage, 0)
+  const averageCoveragePercentage = primaryPortfolios.length > 0
+    ? Math.round(totalCoverage / primaryPortfolios.length)
     : 0
 
-  const portfolioWithMostUrgent = portfolios
+  const portfolioWithMostUrgent = primaryPortfolios
     .slice()
     .sort((left, right) => {
       if (right.totalUrgent !== left.totalUrgent) {
@@ -107,7 +154,7 @@ function buildExecutiveSummary(portfolios: AssignmentPortfolioSummary[]): Assign
       return left.coveragePercentage - right.coveragePercentage
     })[0] ?? null
 
-  const portfolioWithLowestCoverage = portfolios
+  const portfolioWithLowestCoverage = primaryPortfolios
     .slice()
     .sort((left, right) => {
       if (left.coveragePercentage !== right.coveragePercentage) {
@@ -118,8 +165,9 @@ function buildExecutiveSummary(portfolios: AssignmentPortfolioSummary[]): Assign
     })[0] ?? null
 
   return {
-    totalActivePortfolios: portfolios.length,
+    totalActivePortfolios: primaryPortfolios.length,
     totalAssignedBeneficiaries,
+    totalActiveSupportAssignments,
     averageCoveragePercentage,
     activeTeleoperators: portfolios.filter((item) => item.isProfileActive).length,
     portfolioWithMostUrgent,
@@ -137,6 +185,7 @@ export async function fetchAssignmentsOverview(): Promise<AssignmentOverviewData
         beneficiary_id,
         starts_at,
         assignment_type,
+        reason,
         beneficiary:beneficiaries (
           id,
           rut_raw,
@@ -161,7 +210,7 @@ export async function fetchAssignmentsOverview(): Promise<AssignmentOverviewData
       `,
     )
     .eq('status', 'active')
-    .eq('assignment_type', 'primary')
+    .in('assignment_type', ['primary', 'support'])
     .order('starts_at', { ascending: false })
 
   if (error) {
@@ -170,8 +219,40 @@ export async function fetchAssignmentsOverview(): Promise<AssignmentOverviewData
 
   const beneficiaries: AssignmentPortfolioBeneficiary[] = []
   const portfolios = new Map<string, AssignmentPortfolioSummary>()
+  const activeRows = ((data as AssignmentRow[]) ?? [])
+  const primaryRowsByBeneficiary = new Map<string, AssignmentRow>()
+  const supportNamesByBeneficiary = new Map<string, string[]>()
 
-  for (const row of ((data as AssignmentRow[]) ?? [])) {
+  for (const row of activeRows) {
+    const assignmentType = String(row.assignment_type)
+
+    if (assignmentType === 'primary') {
+      primaryRowsByBeneficiary.set(String(row.beneficiary_id), row)
+      continue
+    }
+
+    if (assignmentType !== 'support') {
+      continue
+    }
+
+    const assignedUserRaw = pickSingle(row.assigned_user)
+
+    if (!assignedUserRaw) {
+      continue
+    }
+
+    const beneficiaryId = String(row.beneficiary_id)
+    const currentNames = supportNamesByBeneficiary.get(beneficiaryId) ?? []
+    currentNames.push(
+      getOperationalDisplayName({
+        full_name: (assignedUserRaw.full_name as string | null) ?? null,
+        email: (assignedUserRaw.email as string | null) ?? null,
+      }),
+    )
+    supportNamesByBeneficiary.set(beneficiaryId, currentNames)
+  }
+
+  for (const row of activeRows) {
     const beneficiaryRaw = pickSingle(row.beneficiary)
     const assignedUserRaw = pickSingle(row.assigned_user)
 
@@ -193,13 +274,26 @@ export async function fetchAssignmentsOverview(): Promise<AssignmentOverviewData
     })
     const teleoperatorEmail = (assignedUserRaw.email as string | null) ?? null
     const isProfileActive = Boolean(assignedUserRaw.is_active)
+    const beneficiaryId = String(row.beneficiary_id)
+    const assignmentType = String(row.assignment_type) as AssignmentPortfolioBeneficiary['assignmentType']
+    const primaryRow = primaryRowsByBeneficiary.get(beneficiaryId) ?? row
+    const primaryUserRaw = pickSingle(primaryRow.assigned_user)
+    const primaryResponsibleId = String(primaryUserRaw?.id ?? assignedUserRaw.id)
+    const primaryResponsibleName = getOperationalDisplayName({
+      full_name: (primaryUserRaw?.full_name as string | null) ?? null,
+      email: (primaryUserRaw?.email as string | null) ?? null,
+    })
+    const primaryResponsibleEmail = (primaryUserRaw?.email as string | null) ?? teleoperatorEmail
     const followupStatus = resolveFollowupStatus(
       beneficiaryRaw.beneficiary_followup_status as FollowupStatusRow | FollowupStatusRow[] | null,
+    )
+    const supportResponsibleNames = (supportNamesByBeneficiary.get(beneficiaryId) ?? []).filter(
+      (name) => name !== teleoperatorName,
     )
 
     const beneficiaryItem = {
       assignmentId: String(row.id),
-      beneficiaryId: String(row.beneficiary_id),
+      beneficiaryId,
       beneficiaryName: buildBeneficiaryName({
         full_name: (beneficiaryRaw.full_name as string | null) ?? null,
         first_name: (beneficiaryRaw.first_name as string | null) ?? null,
@@ -217,11 +311,17 @@ export async function fetchAssignmentsOverview(): Promise<AssignmentOverviewData
         beneficiaryRaw.beneficiary_followup_status as FollowupStatusRow | FollowupStatusRow[] | null,
       ),
       startsAt: String(row.starts_at),
-      assignmentType: 'primary',
+      reason: (row.reason as string | null) ?? null,
+      assignmentType,
       teleoperatorId,
       teleoperatorName,
       teleoperatorEmail,
       isProfileActive,
+      primaryResponsibleId,
+      primaryResponsibleName,
+      primaryResponsibleEmail,
+      supportResponsibleNames,
+      supportCount: supportResponsibleNames.length,
     } satisfies AssignmentPortfolioBeneficiary
 
     beneficiaries.push(beneficiaryItem)
@@ -232,11 +332,18 @@ export async function fetchAssignmentsOverview(): Promise<AssignmentOverviewData
       teleoperatorEmail,
       isProfileActive,
       totalPortfolio: 0,
+      totalSupportAssignments: 0,
       totalUpToDate: 0,
       totalPending: 0,
       totalUrgent: 0,
       totalNoData: 0,
       coveragePercentage: 0,
+    }
+
+    if (assignmentType === 'support') {
+      currentPortfolio.totalSupportAssignments += 1
+      portfolios.set(teleoperatorId, currentPortfolio)
+      continue
     }
 
     currentPortfolio.totalPortfolio += 1
@@ -272,6 +379,10 @@ export async function fetchAssignmentsOverview(): Promise<AssignmentOverviewData
         return left.coveragePercentage - right.coveragePercentage
       }
 
+      if (right.totalSupportAssignments !== left.totalSupportAssignments) {
+        return right.totalSupportAssignments - left.totalSupportAssignments
+      }
+
       return left.teleoperatorName.localeCompare(right.teleoperatorName)
     })
 
@@ -283,31 +394,35 @@ export async function fetchAssignmentsOverview(): Promise<AssignmentOverviewData
         return left.teleoperatorName.localeCompare(right.teleoperatorName)
       }
 
+      if (left.assignmentType !== right.assignmentType) {
+        return left.assignmentType === 'primary' ? -1 : 1
+      }
+
       return left.beneficiaryName.localeCompare(right.beneficiaryName)
     }),
   }
 }
 
 export async function fetchActiveTeleoperatorOptions(
-  excludeUserId?: string,
+  excludeUserIds: string[] = [],
 ): Promise<AssignmentTeleoperatorOption[]> {
   const client = assertSupabase()
-  const query = client
+  const { data, error } = await client
     .from('profiles')
     .select('id, full_name, email')
     .eq('role', 'teleoperadora')
     .eq('is_active', true)
     .order('full_name', { ascending: true })
 
-  const { data, error } = excludeUserId
-    ? await query.neq('id', excludeUserId)
-    : await query
-
   if (error) {
     throw error
   }
 
-  return ((data as Array<Record<string, unknown>>) ?? []).map((row) => ({
+  const excludedIdSet = new Set(excludeUserIds)
+
+  return ((data as Array<Record<string, unknown>>) ?? [])
+    .filter((row) => !excludedIdSet.has(String(row.id)))
+    .map((row) => ({
     id: String(row.id),
     fullName: getOperationalDisplayName({
       full_name: (row.full_name as string | null) ?? null,
@@ -365,7 +480,11 @@ export function getReassignResponsibleErrorMessage(error: unknown) {
   }
 
   if (message.includes('Solo super_admin')) {
-    return 'Solo una cuenta super_admin puede ejecutar este cambio.'
+    return 'Solo una cuenta administrativa autorizada puede ejecutar este cambio.'
+  }
+
+  if (message.includes('Solo admin o super_admin')) {
+    return 'Solo admin o super_admin pueden ejecutar esta acción.'
   }
 
   if (message.includes('La nueva responsable debe ser distinta')) {
@@ -389,4 +508,110 @@ export function getReassignResponsibleErrorMessage(error: unknown) {
   }
 
   return message
+}
+
+export async function addSupportAssignment({
+  beneficiaryId,
+  supportUserId,
+  reason,
+}: {
+  beneficiaryId: string
+  supportUserId: string
+  reason: string
+}): Promise<AddSupportAssignmentResult> {
+  const client = assertSupabase()
+  const { data, error } = await client.rpc('add_support_assignment', {
+    p_beneficiary_id: beneficiaryId,
+    p_support_user_id: supportUserId,
+    p_reason: reason,
+  })
+
+  if (error) {
+    throw error
+  }
+
+  const row = Array.isArray(data) ? data[0] : data
+
+  if (!row) {
+    throw new Error('No fue posible confirmar el apoyo temporal.')
+  }
+
+  const value = row as AddSupportRpcRow
+
+  return {
+    assignmentId: value.assignment_id,
+    beneficiaryId: value.beneficiary_id,
+    supportUserId: value.support_user_id,
+    supportUserName: value.support_user_name,
+    primaryUserId: value.primary_user_id,
+    primaryUserName: value.primary_user_name,
+    startsAt: value.starts_at,
+  }
+}
+
+export async function endSupportAssignment({
+  assignmentId,
+  reason,
+}: {
+  assignmentId: string
+  reason: string
+}): Promise<EndSupportAssignmentResult> {
+  const client = assertSupabase()
+  const { data, error } = await client.rpc('end_support_assignment', {
+    p_assignment_id: assignmentId,
+    p_reason: reason,
+  })
+
+  if (error) {
+    throw error
+  }
+
+  const row = Array.isArray(data) ? data[0] : data
+
+  if (!row) {
+    throw new Error('No fue posible cerrar el apoyo temporal.')
+  }
+
+  const value = row as EndSupportRpcRow
+
+  return {
+    assignmentId: value.assignment_id,
+    beneficiaryId: value.beneficiary_id,
+    supportUserId: value.support_user_id,
+    supportUserName: value.support_user_name,
+    endedAt: value.ended_at,
+  }
+}
+
+export async function fetchAssignmentHistory(
+  beneficiaryId: string,
+): Promise<AssignmentHistoryItem[]> {
+  const client = assertSupabase()
+  const { data, error } = await client.rpc('get_assignment_history', {
+    p_beneficiary_id: beneficiaryId,
+  })
+
+  if (error) {
+    throw error
+  }
+
+  return ((data as AssignmentHistoryRpcRow[]) ?? []).map((row) => ({
+    assignmentId: row.assignment_id,
+    beneficiaryId: row.beneficiary_id,
+    assignmentType: row.assignment_type,
+    status: row.status,
+    assignedUserId: row.assigned_user_id,
+    assignedUserName: row.assigned_user_name,
+    assignedUserEmail: row.assigned_user_email ?? null,
+    startsAt: row.starts_at,
+    endsAt: row.ends_at ?? null,
+    reason: row.reason ?? null,
+    endedReason: row.ended_reason ?? null,
+    createdBy: row.created_by ?? null,
+    createdByName: row.created_by_name ?? null,
+    endedBy: row.ended_by ?? null,
+    endedByName: row.ended_by_name ?? null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }))
 }

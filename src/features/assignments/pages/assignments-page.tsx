@@ -1,17 +1,22 @@
 import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 
 import { Badge, PageState, Panel, secondaryButtonClass } from '@/components/ui'
+import { AddSupportDialog } from '@/features/assignments/components/add-support-dialog'
+import { AssignmentHistoryDialog } from '@/features/assignments/components/assignment-history-dialog'
 import { fetchAssignmentsOverview } from '@/features/assignments/data'
 import { ChangeResponsibleDialog } from '@/features/assignments/components/change-responsible-dialog'
 import { AssignmentKpiCard } from '@/features/assignments/components/assignment-kpi-card'
+import { EndSupportDialog } from '@/features/assignments/components/end-support-dialog'
 import { TeleoperatorPortfolioPanel } from '@/features/assignments/components/teleoperator-portfolio-panel'
 import { TeleoperatorSummaryTable } from '@/features/assignments/components/teleoperator-summary-table'
 import { useAuth } from '@/features/auth/use-auth'
 import type {
+  AddSupportAssignmentResult,
   AssignmentCoverageFilter,
   AssignmentOverviewData,
   AssignmentPortfolioBeneficiary,
   AssignmentViewTab,
+  EndSupportAssignmentResult,
   ReassignBeneficiaryPrimaryAssignmentResult,
 } from '@/features/assignments/types'
 import {
@@ -25,12 +30,12 @@ const tabs: Array<{ id: AssignmentViewTab; label: string; description: string }>
   {
     id: 'global',
     label: 'Vista global',
-    description: 'Distribución institucional de carteras, cobertura y carga operativa.',
+    description: 'Distribución institucional de carteras, cobertura, carga y apoyos temporales.',
   },
   {
     id: 'teleoperator',
     label: 'Vista por teleoperadora',
-    description: 'Lectura detallada de beneficiarios asignados y responsable oficial vigente.',
+    description: 'Lectura detallada de responsables oficiales, apoyos temporales e historial visible.',
   },
 ]
 
@@ -64,7 +69,17 @@ export function AssignmentsPage() {
   const [selectedTeleoperatorId, setSelectedTeleoperatorId] = useState<string | null>(null)
   const [selectedBeneficiaryForChange, setSelectedBeneficiaryForChange] =
     useState<AssignmentPortfolioBeneficiary | null>(null)
-  const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const [selectedBeneficiaryForSupport, setSelectedBeneficiaryForSupport] =
+    useState<AssignmentPortfolioBeneficiary | null>(null)
+  const [selectedSupportAssignmentForEnd, setSelectedSupportAssignmentForEnd] =
+    useState<AssignmentPortfolioBeneficiary | null>(null)
+  const [selectedBeneficiaryForHistory, setSelectedBeneficiaryForHistory] =
+    useState<AssignmentPortfolioBeneficiary | null>(null)
+  const [feedback, setFeedback] = useState<{
+    title: string
+    message: string
+    tone: 'success' | 'info'
+  } | null>(null)
   const deferredTeleoperatorSearch = useDeferredValue(teleoperatorSearch)
   const deferredBeneficiarySearch = useDeferredValue(beneficiarySearch)
 
@@ -83,7 +98,6 @@ export function AssignmentsPage() {
         }
 
         setData(nextData)
-        setSelectedTeleoperatorId(nextData.portfolios[0]?.teleoperatorId ?? null)
       } catch (loadError) {
         if (cancelled) {
           return
@@ -195,16 +209,37 @@ export function AssignmentsPage() {
     return data.summary.totalAssignedBeneficiaries / data.portfolios.length
   }, [data])
 
-  const canExecuteReassignment = profile?.role === 'super_admin'
-  const isAdminReadOnly = profile?.role === 'admin'
+  const canManageAssignments = profile?.role === 'admin' || profile?.role === 'super_admin'
 
   const handleReassignmentSuccess = (result: ReassignBeneficiaryPrimaryAssignmentResult) => {
-    setSuccessMessage(
-      `Responsable actualizada: ${result.previousAssignedUserName} -> ${result.newAssignedUserName}. El historial quedó conservado.`,
-    )
+    setFeedback({
+      title: 'Responsable actualizada',
+      message: `${result.previousAssignedUserName} -> ${result.newAssignedUserName}. El historial quedó conservado.`,
+      tone: 'success',
+    })
     setSelectedBeneficiaryForChange(null)
     setSelectedTeleoperatorId(result.newAssignedUserId)
     setTab('teleoperator')
+    setReloadKey((currentValue) => currentValue + 1)
+  }
+
+  const handleAddSupportSuccess = (result: AddSupportAssignmentResult) => {
+    setFeedback({
+      title: 'Apoyo temporal agregado',
+      message: `${result.supportUserName} quedó visible como apoyo temporal sin reemplazar a ${result.primaryUserName}.`,
+      tone: 'success',
+    })
+    setSelectedBeneficiaryForSupport(null)
+    setReloadKey((currentValue) => currentValue + 1)
+  }
+
+  const handleEndSupportSuccess = (result: EndSupportAssignmentResult) => {
+    setFeedback({
+      title: 'Apoyo temporal cerrado',
+      message: `${result.supportUserName} dejó de figurar como apoyo temporal y el historial quedó conservado.`,
+      tone: 'success',
+    })
+    setSelectedSupportAssignmentForEnd(null)
     setReloadKey((currentValue) => currentValue + 1)
   }
 
@@ -243,17 +278,21 @@ export function AssignmentsPage() {
 
   return (
     <div className="space-y-5">
-      {successMessage && (
-        <Panel className="border border-emerald-200 bg-emerald-50 p-5">
+      {feedback && (
+        <Panel className={feedback.tone === 'success' ? 'border border-emerald-200 bg-emerald-50 p-5' : 'border border-sky-200 bg-sky-50 p-5'}>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-emerald-800">Cambio confirmado</p>
-              <p className="mt-2 text-sm leading-7 text-emerald-900">{successMessage}</p>
+              <p className={feedback.tone === 'success' ? 'text-sm font-semibold uppercase tracking-[0.18em] text-emerald-800' : 'text-sm font-semibold uppercase tracking-[0.18em] text-sky-800'}>
+                {feedback.title}
+              </p>
+              <p className={feedback.tone === 'success' ? 'mt-2 text-sm leading-7 text-emerald-900' : 'mt-2 text-sm leading-7 text-sky-900'}>
+                {feedback.message}
+              </p>
             </div>
             <button
               type="button"
               className={secondaryButtonClass}
-              onClick={() => setSuccessMessage(null)}
+              onClick={() => setFeedback(null)}
             >
               Ocultar
             </button>
@@ -266,14 +305,14 @@ export function AssignmentsPage() {
           <div className="max-w-4xl">
             <p className="text-sm uppercase tracking-[0.18em] text-slate-500">Carteras operacionales</p>
             <h2 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
-              Responsabilidad operacional visible para supervisión y gerencia
+              Gestión controlada de responsables y apoyos temporales
             </h2>
             <p className="mt-3 text-sm leading-7 text-slate-600">
-              Esta fase muestra la lectura oficial de carteras vigentes, responsables operacionales y cobertura consolidada. Solo lectura, sin cambios habilitados en esta etapa.
+              Esta fase mantiene la lectura oficial de carteras vigentes y agrega cambios controlados de responsable, apoyo temporal e historial trazable según el rol autorizado.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
               <Badge tone="info">Responsable oficial</Badge>
-              <Badge tone="muted">Solo lectura</Badge>
+              <Badge tone="warning">Apoyo temporal</Badge>
               <Badge tone="success">Responsable oficial vigente</Badge>
             </div>
           </div>
@@ -298,7 +337,7 @@ export function AssignmentsPage() {
         </div>
       </Panel>
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         <AssignmentKpiCard
           eyebrow="KPIs"
           title="Carteras activas"
@@ -322,10 +361,17 @@ export function AssignmentsPage() {
         />
         <AssignmentKpiCard
           eyebrow="KPIs"
-          title="Teleoperadoras activas"
+          title="Responsables activas"
           value={String(data.summary.activeTeleoperators)}
           helper="Responsables activas con cartera visible en la lectura institucional."
           tone="info"
+        />
+        <AssignmentKpiCard
+          eyebrow="KPIs"
+          title="Apoyos temporales"
+          value={String(data.summary.totalActiveSupportAssignments)}
+          helper="Asignaciones activas de apoyo temporal visibles en la operación actual."
+          tone="warning"
         />
         <AssignmentKpiCard
           eyebrow="Alertas"
@@ -430,7 +476,7 @@ export function AssignmentsPage() {
 
           <div className="rounded-[24px] border border-slate-200 bg-slate-50 px-4 py-4 text-sm leading-6 text-slate-600">
             Filtro activo de cobertura: <span className="font-semibold text-slate-900">{getCoverageFilterLabel(coverageFilter)}</span>.
-            La vista usa la cartera oficial vigente y el estado consolidado de seguimiento.
+            La vista usa la cartera oficial vigente, muestra apoyos temporales activos y mantiene historial trazable por beneficiario.
           </div>
         </div>
       </Panel>
@@ -447,15 +493,6 @@ export function AssignmentsPage() {
         />
       ) : (
         <div className="space-y-5">
-          {isAdminReadOnly && (
-            <Panel className="border border-amber-200 bg-amber-50 p-5">
-              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-amber-800">Solo lectura</p>
-              <p className="mt-2 text-sm leading-7 text-amber-900">
-                En esta fase, el cambio de responsable está reservado a cuentas super_admin. Como admin puedes revisar la cartera, pero no ejecutar el movimiento.
-              </p>
-            </Panel>
-          )}
-
           <Panel className="p-6">
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1.3fr)_auto] lg:items-end">
               <label className="block">
@@ -487,20 +524,74 @@ export function AssignmentsPage() {
             portfolio={selectedPortfolio}
             beneficiaries={filteredBeneficiaries}
             averagePortfolioSize={averagePortfolioSize}
-            canChangeResponsible={canExecuteReassignment}
+            canManageAssignments={canManageAssignments}
             onRequestChangeResponsible={(beneficiary) => {
-              setSuccessMessage(null)
+              setFeedback(null)
               setSelectedBeneficiaryForChange(beneficiary)
+            }}
+            onRequestAddSupport={(beneficiary) => {
+              setFeedback(null)
+              setSelectedBeneficiaryForSupport(beneficiary)
+            }}
+            onRequestEndSupport={(beneficiary) => {
+              setFeedback(null)
+              setSelectedSupportAssignmentForEnd(beneficiary)
+            }}
+            onRequestViewHistory={(beneficiary) => {
+              setSelectedBeneficiaryForHistory(beneficiary)
             }}
           />
         </div>
       )}
 
-      {selectedBeneficiaryForChange && canExecuteReassignment && (
+      {selectedBeneficiaryForChange && canManageAssignments && (
         <ChangeResponsibleDialog
           beneficiary={selectedBeneficiaryForChange}
+          excludedUserIds={[
+            selectedBeneficiaryForChange.teleoperatorId,
+            ...data.beneficiaries
+              .filter(
+                (item) =>
+                  item.beneficiaryId === selectedBeneficiaryForChange.beneficiaryId
+                  && item.assignmentType === 'support',
+              )
+              .map((item) => item.teleoperatorId),
+          ]}
           onClose={() => setSelectedBeneficiaryForChange(null)}
           onSuccess={handleReassignmentSuccess}
+        />
+      )}
+
+      {selectedBeneficiaryForSupport && canManageAssignments && (
+        <AddSupportDialog
+          beneficiary={selectedBeneficiaryForSupport}
+          excludedUserIds={[
+            selectedBeneficiaryForSupport.primaryResponsibleId,
+            ...data.beneficiaries
+              .filter(
+                (item) =>
+                  item.beneficiaryId === selectedBeneficiaryForSupport.beneficiaryId
+                  && item.assignmentType === 'support',
+              )
+              .map((item) => item.teleoperatorId),
+          ]}
+          onClose={() => setSelectedBeneficiaryForSupport(null)}
+          onSuccess={handleAddSupportSuccess}
+        />
+      )}
+
+      {selectedSupportAssignmentForEnd && canManageAssignments && (
+        <EndSupportDialog
+          beneficiary={selectedSupportAssignmentForEnd}
+          onClose={() => setSelectedSupportAssignmentForEnd(null)}
+          onSuccess={handleEndSupportSuccess}
+        />
+      )}
+
+      {selectedBeneficiaryForHistory && (
+        <AssignmentHistoryDialog
+          beneficiary={selectedBeneficiaryForHistory}
+          onClose={() => setSelectedBeneficiaryForHistory(null)}
         />
       )}
     </div>

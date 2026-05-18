@@ -169,6 +169,14 @@ export function PortfolioPage() {
                 <p className="mt-2 text-sm text-slate-600">
                   {item.beneficiary.commune || 'Comuna sin dato'}
                 </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Badge tone={item.assignmentType === 'primary' ? 'info' : 'warning'}>
+                    {item.assignmentType === 'primary' ? 'Responsable oficial' : 'Apoyo temporal'}
+                  </Badge>
+                  {item.assignmentType === 'support' && item.primaryResponsibleName && (
+                    <Badge tone="muted">Responsable oficial: {item.primaryResponsibleName}</Badge>
+                  )}
+                </div>
               </div>
               <StatusBadge status={item.followupStatus} />
             </div>
@@ -197,7 +205,8 @@ export function PortfolioPage() {
 
             <div className="flex items-center justify-between gap-4 pl-2">
               <p className="text-sm text-slate-500">
-                Asignacion activa desde {formatDateTime(item.startsAt)}
+                {item.assignmentType === 'primary' ? 'Responsabilidad visible desde ' : 'Apoyo temporal activo desde '}
+                {formatDateTime(item.startsAt)}
               </p>
               <Link
                 to={`/teleoperadora/beneficiarios/${item.beneficiaryId}`}

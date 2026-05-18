@@ -113,7 +113,12 @@ export function BeneficiaryDetailPage() {
             </div>
             <div className="flex flex-wrap gap-2">
               <StatusBadge status={data.status.status} />
-              <Badge tone="info">Asignacion activa</Badge>
+              <Badge tone={data.assignment.assignmentType === 'primary' ? 'info' : 'warning'}>
+                {data.assignment.assignmentType === 'primary' ? 'Responsable oficial' : 'Apoyo temporal'}
+              </Badge>
+              {data.assignment.assignmentType === 'support' && data.assignment.primaryResponsibleName && (
+                <Badge tone="muted">Responsable oficial: {data.assignment.primaryResponsibleName}</Badge>
+              )}
             </div>
           </div>
 

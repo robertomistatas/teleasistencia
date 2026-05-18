@@ -15,10 +15,12 @@ import { formatDateTime } from '@/lib/format'
 
 export function ChangeResponsibleDialog({
 	beneficiary,
+	excludedUserIds,
 	onClose,
 	onSuccess,
 }: {
 	beneficiary: AssignmentPortfolioBeneficiary
+	excludedUserIds: string[]
 	onClose: () => void
 	onSuccess: (result: ReassignBeneficiaryPrimaryAssignmentResult) => void
 }) {
@@ -38,7 +40,7 @@ export function ChangeResponsibleDialog({
 			setOptionsError(null)
 
 			try {
-				const nextOptions = await fetchActiveTeleoperatorOptions(beneficiary.teleoperatorId)
+				const nextOptions = await fetchActiveTeleoperatorOptions(excludedUserIds)
 
 				if (cancelled) {
 					return
@@ -66,7 +68,7 @@ export function ChangeResponsibleDialog({
 		return () => {
 			cancelled = true
 		}
-	}, [beneficiary.teleoperatorId])
+	}, [excludedUserIds])
 
 	const selectedResponsible = useMemo(
 		() => options.find((option) => option.id === newResponsibleId) ?? null,

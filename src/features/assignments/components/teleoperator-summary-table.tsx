@@ -48,6 +48,7 @@ export function TeleoperatorSummaryTable({
             <tr>
               <th className="px-6 py-4 font-medium">Responsable operacional</th>
               <th className="px-4 py-4 font-medium">Cartera</th>
+              <th className="px-4 py-4 font-medium">Apoyos</th>
               <th className="px-4 py-4 font-medium">Al día</th>
               <th className="px-4 py-4 font-medium">Pendientes</th>
               <th className="px-4 py-4 font-medium">Urgentes</th>
@@ -85,6 +86,7 @@ export function TeleoperatorSummaryTable({
                     </div>
                   </td>
                   <td className="px-4 py-5 text-sm font-semibold text-slate-950">{item.totalPortfolio}</td>
+                  <td className="px-4 py-5 text-sm text-slate-700">{item.totalSupportAssignments}</td>
                   <td className="px-4 py-5 text-sm text-slate-700">{item.totalUpToDate}</td>
                   <td className="px-4 py-5 text-sm text-slate-700">{item.totalPending}</td>
                   <td className="px-4 py-5 text-sm text-slate-700">{item.totalUrgent}</td>

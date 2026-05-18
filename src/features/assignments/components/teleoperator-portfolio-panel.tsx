@@ -18,14 +18,20 @@ export function TeleoperatorPortfolioPanel({
   portfolio,
   beneficiaries,
   averagePortfolioSize,
-  canChangeResponsible,
+  canManageAssignments,
   onRequestChangeResponsible,
+  onRequestAddSupport,
+  onRequestEndSupport,
+  onRequestViewHistory,
 }: {
   portfolio: AssignmentPortfolioSummary | null
   beneficiaries: AssignmentPortfolioBeneficiary[]
   averagePortfolioSize: number
-  canChangeResponsible: boolean
+  canManageAssignments: boolean
   onRequestChangeResponsible: (beneficiary: AssignmentPortfolioBeneficiary) => void
+  onRequestAddSupport: (beneficiary: AssignmentPortfolioBeneficiary) => void
+  onRequestEndSupport: (beneficiary: AssignmentPortfolioBeneficiary) => void
+  onRequestViewHistory: (beneficiary: AssignmentPortfolioBeneficiary) => void
 }) {
   if (!portfolio) {
     return (
@@ -55,6 +61,9 @@ export function TeleoperatorPortfolioPanel({
               <Badge tone="info">Responsable oficial</Badge>
               <Badge tone={healthMeta.tone}>{healthMeta.label}</Badge>
               <Badge tone={loadMeta.tone}>{loadMeta.label}</Badge>
+              {portfolio.totalSupportAssignments > 0 && (
+                <Badge tone="warning">{portfolio.totalSupportAssignments} apoyos temporales</Badge>
+              )}
               {!portfolio.isProfileActive && <Badge tone="warning">Perfil inactivo</Badge>}
             </div>
           </div>
@@ -63,6 +72,10 @@ export function TeleoperatorPortfolioPanel({
             <div className="rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-4">
               <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Beneficiarios asignados</p>
               <p className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">{portfolio.totalPortfolio}</p>
+            </div>
+            <div className="rounded-[22px] border border-amber-200 bg-amber-50 px-4 py-4">
+              <p className="text-xs uppercase tracking-[0.16em] text-amber-700">Apoyos temporales</p>
+              <p className="mt-3 text-3xl font-semibold tracking-tight text-amber-900">{portfolio.totalSupportAssignments}</p>
             </div>
             <div className="rounded-[22px] border border-sky-200 bg-sky-50 px-4 py-4">
               <p className="text-xs uppercase tracking-[0.16em] text-sky-700">Cobertura vigente</p>
@@ -105,6 +118,7 @@ export function TeleoperatorPortfolioPanel({
 
         {beneficiaries.map((item) => {
           const meta = followupStatusMeta[item.followupStatus]
+          const isPrimaryAssignment = item.assignmentType === 'primary'
 
           return (
             <Panel key={item.assignmentId} className={`relative overflow-hidden p-6 ${meta.panelClass}`}>
@@ -124,10 +138,35 @@ export function TeleoperatorPortfolioPanel({
                 </div>
 
                 <div className="mt-4 flex flex-wrap gap-2">
-                  <Badge tone="info">Responsable oficial</Badge>
-                  <Badge tone="muted">Responsable oficial vigente</Badge>
+                  <Badge tone={isPrimaryAssignment ? 'info' : 'warning'}>
+                    {isPrimaryAssignment ? 'Responsable oficial' : 'Apoyo temporal'}
+                  </Badge>
+                  <Badge tone="muted">
+                    {isPrimaryAssignment ? 'Responsable oficial vigente' : `Responsable oficial: ${item.primaryResponsibleName}`}
+                  </Badge>
+                  {isPrimaryAssignment && item.supportCount > 0 && (
+                    <Badge tone="warning">{item.supportCount} apoyo(s) activo(s)</Badge>
+                  )}
                   {!item.isProfileActive && <Badge tone="warning">Perfil a revisar</Badge>}
                 </div>
+
+                {item.supportCount > 0 && isPrimaryAssignment && (
+                  <div className="mt-4 rounded-[20px] bg-white/80 px-4 py-3">
+                    <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Apoyos temporales activos</p>
+                    <p className="mt-2 text-sm font-medium text-slate-900">
+                      {item.supportResponsibleNames.join(', ')}
+                    </p>
+                  </div>
+                )}
+
+                {!isPrimaryAssignment && (
+                  <div className="mt-4 rounded-[20px] bg-white/80 px-4 py-3">
+                    <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Responsable oficial actual</p>
+                    <p className="mt-2 text-sm font-medium text-slate-900">
+                      {item.primaryResponsibleName}
+                    </p>
+                  </div>
+                )}
 
                 <div className="mt-5 grid gap-3 sm:grid-cols-3">
                   <div className="rounded-[22px] bg-white/80 px-4 py-3">
@@ -157,13 +196,38 @@ export function TeleoperatorPortfolioPanel({
                     <span className={meta.accentClass.replace('bg-', 'text-')}>
                       {meta.label}
                     </span>
-                    {canChangeResponsible && (
+                    <button
+                      type="button"
+                      className={secondaryButtonClass}
+                      onClick={() => onRequestViewHistory(item)}
+                    >
+                      Ver historial
+                    </button>
+                    {canManageAssignments && isPrimaryAssignment && (
+                      <>
+                        <button
+                          type="button"
+                          className={secondaryButtonClass}
+                          onClick={() => onRequestAddSupport(item)}
+                        >
+                          Agregar apoyo temporal
+                        </button>
+                        <button
+                          type="button"
+                          className={secondaryButtonClass}
+                          onClick={() => onRequestChangeResponsible(item)}
+                        >
+                          Cambiar responsable
+                        </button>
+                      </>
+                    )}
+                    {canManageAssignments && !isPrimaryAssignment && (
                       <button
                         type="button"
                         className={secondaryButtonClass}
-                        onClick={() => onRequestChangeResponsible(item)}
+                        onClick={() => onRequestEndSupport(item)}
                       >
-                        Cambiar responsable
+                        Finalizar apoyo
                       </button>
                     )}
                   </div>
