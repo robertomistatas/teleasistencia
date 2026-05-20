@@ -39,7 +39,7 @@ export function UsersPage() {
   const { profile } = useAuth()
   const [query, setQuery] = useState('')
   const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all')
-  const [stateFilter, setStateFilter] = useState<UserStateFilter>('all')
+  const [stateFilter, setStateFilter] = useState<UserStateFilter>('active')
   const [users, setUsers] = useState<UserOperationalProfile[]>([])
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -117,7 +117,7 @@ export function UsersPage() {
     }
   }, [users])
 
-  const hasActiveFilters = Boolean(deferredQuery.trim()) || roleFilter !== 'all' || stateFilter !== 'all'
+  const hasActiveFilters = Boolean(deferredQuery.trim()) || roleFilter !== 'all' || stateFilter !== 'active'
 
   if (!profile) {
     return null
@@ -203,7 +203,7 @@ export function UsersPage() {
             onClick={() => {
               setQuery('')
               setRoleFilter('all')
-              setStateFilter('all')
+              setStateFilter('active')
             }}
             disabled={!hasActiveFilters}
           >

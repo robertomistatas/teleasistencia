@@ -167,6 +167,10 @@ function buildTeleoperatorLabel(raw: Record<string, unknown>) {
   )
 }
 
+function isOperationallyActiveProfile(value: Record<string, unknown> | null | undefined) {
+  return Boolean(value?.is_active)
+}
+
 function buildAssignmentMap(rows: AuditActiveAssignmentRow[]) {
   const assignmentMap = new Map<string, AuditBeneficiaryAssignment>()
 
@@ -175,7 +179,7 @@ function buildAssignmentMap(rows: AuditActiveAssignmentRow[]) {
       row.assigned_user as Record<string, unknown> | Record<string, unknown>[] | null,
     )
 
-    if (!assignedUser) {
+    if (!assignedUser || !isOperationallyActiveProfile(assignedUser)) {
       continue
     }
 
@@ -302,7 +306,8 @@ async function fetchActivePrimaryAssignments() {
         assigned_user:profiles!beneficiary_assignments_assigned_user_id_fkey (
           id,
           email,
-          full_name
+          full_name,
+          is_active
         )
       `,
     )

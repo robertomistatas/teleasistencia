@@ -132,6 +132,10 @@ function resolveLastValidFollowupAt(
   return row?.last_valid_followup_at ?? null
 }
 
+function isOperationallyActiveProfile(value: Record<string, unknown> | null | undefined) {
+  return Boolean(value?.is_active)
+}
+
 function buildExecutiveSummary(portfolios: AssignmentPortfolioSummary[]): AssignmentExecutiveSummary {
   const totalAssignedBeneficiaries = portfolios.reduce((sum, item) => sum + item.totalPortfolio, 0)
   const totalActiveSupportAssignments = portfolios.reduce(
@@ -237,7 +241,7 @@ export async function fetchAssignmentsOverview(): Promise<AssignmentOverviewData
 
     const assignedUserRaw = pickSingle(row.assigned_user)
 
-    if (!assignedUserRaw) {
+    if (!assignedUserRaw || !isOperationallyActiveProfile(assignedUserRaw)) {
       continue
     }
 
@@ -256,7 +260,7 @@ export async function fetchAssignmentsOverview(): Promise<AssignmentOverviewData
     const beneficiaryRaw = pickSingle(row.beneficiary)
     const assignedUserRaw = pickSingle(row.assigned_user)
 
-    if (!beneficiaryRaw || !assignedUserRaw) {
+    if (!beneficiaryRaw || !assignedUserRaw || !isOperationallyActiveProfile(assignedUserRaw)) {
       continue
     }
 
@@ -278,12 +282,17 @@ export async function fetchAssignmentsOverview(): Promise<AssignmentOverviewData
     const assignmentType = String(row.assignment_type) as AssignmentPortfolioBeneficiary['assignmentType']
     const primaryRow = primaryRowsByBeneficiary.get(beneficiaryId) ?? row
     const primaryUserRaw = pickSingle(primaryRow.assigned_user)
-    const primaryResponsibleId = String(primaryUserRaw?.id ?? assignedUserRaw.id)
-    const primaryResponsibleName = getOperationalDisplayName({
-      full_name: (primaryUserRaw?.full_name as string | null) ?? null,
-      email: (primaryUserRaw?.email as string | null) ?? null,
-    })
-    const primaryResponsibleEmail = (primaryUserRaw?.email as string | null) ?? teleoperatorEmail
+    const activePrimaryUserRaw = isOperationallyActiveProfile(primaryUserRaw) ? primaryUserRaw : null
+    const primaryResponsibleId = String(activePrimaryUserRaw?.id ?? assignedUserRaw.id)
+    const primaryResponsibleName = activePrimaryUserRaw
+      ? getOperationalDisplayName({
+          full_name: (activePrimaryUserRaw.full_name as string | null) ?? null,
+          email: (activePrimaryUserRaw.email as string | null) ?? null,
+        })
+      : 'Sin responsable oficial activa visible'
+    const primaryResponsibleEmail = activePrimaryUserRaw
+      ? ((activePrimaryUserRaw.email as string | null) ?? null)
+      : null
     const followupStatus = resolveFollowupStatus(
       beneficiaryRaw.beneficiary_followup_status as FollowupStatusRow | FollowupStatusRow[] | null,
     )
