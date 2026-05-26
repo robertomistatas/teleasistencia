@@ -17,6 +17,7 @@ import { PortfolioPage } from '@/features/teleoperadora/pages/portfolio-page'
 import { TeleoperatorHomePage } from '@/features/teleoperadora/pages/teleoperator-home-page'
 import { AssignmentImportPage } from '@/features/imports/pages/assignment-import-page'
 import { BeneficiaryImportPage } from '@/features/imports/pages/beneficiary-import-page'
+import { CallLogsImportPage } from '@/features/imports/pages/call-logs-import-page'
 import { UsersPage } from '@/features/users/pages/users-page'
 
 function ShellRoute() {
@@ -87,6 +88,15 @@ export function AppRouter() {
           element={
             <RequireRole allowedRoles={['admin', 'super_admin']}>
               <BeneficiaryImportPage />
+            </RequireRole>
+          }
+        />
+
+        <Route
+          path="/imports/calls"
+          element={
+            <RequireRole allowedRoles={['admin', 'super_admin']}>
+              <CallLogsImportPage />
             </RequireRole>
           }
         />
