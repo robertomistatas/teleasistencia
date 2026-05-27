@@ -1,16 +1,13 @@
 import { useMemo, useState, type FormEvent } from 'react'
 
 import { Badge, Panel, primaryButtonClass } from '@/components/ui'
-import type {
-  ManualFollowupInput,
-  TeleoperatorBeneficiaryDetail,
-} from '@/features/teleoperadora/data'
+import type { ManualFollowupInput } from '@/features/operational-workspace/data'
 import {
   createManualFollowupEvent,
   followupEventLabels,
   supportEventTypes,
   validFollowupEventTypes,
-} from '@/features/teleoperadora/data'
+} from '@/features/operational-workspace/data'
 import { useAuth } from '@/features/auth/use-auth'
 import type { FollowupEventType } from '@/lib/types'
 
@@ -26,7 +23,17 @@ const followupOptions = [
 ] as const satisfies FollowupEventType[]
 
 type FollowupFormProps = {
-  beneficiary: TeleoperatorBeneficiaryDetail
+  beneficiary: {
+    beneficiary: {
+      id: string
+    }
+    contacts: Array<{
+      id: string
+      contactName: string | null
+      phoneRaw: string | null
+      phoneNormalized: string | null
+    }>
+  }
   onSaved: () => Promise<void> | void
 }
 
@@ -67,21 +74,13 @@ export function FollowupForm({ beneficiary, onSaved }: FollowupFormProps) {
     const payload: ManualFollowupInput = {
       beneficiaryId: beneficiary.beneficiary.id,
       beneficiaryContactId: selectedContactId || null,
-      assignedUserId: user.id,
-      createdBy: user.id,
       eventType: selectedType,
-      isValidFollowup: derivedFlags.isValidFollowup,
       notes: notes.trim() || null,
-      requiresSupport: derivedFlags.requiresSupport,
     }
 
     try {
-      const result = await createManualFollowupEvent(payload)
-      setSuccess(
-        result.recalculationWarning
-          ? `Seguimiento registrado correctamente. ${result.recalculationWarning}`
-          : 'Seguimiento registrado correctamente',
-      )
+      await createManualFollowupEvent(payload)
+      setSuccess('Seguimiento registrado correctamente')
       setSelectedType(null)
       setSelectedContactId('')
       setNotes('')

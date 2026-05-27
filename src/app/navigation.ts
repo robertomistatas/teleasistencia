@@ -11,12 +11,12 @@ export const roleNavigation: Record<UserRole, NavItem[]> = {
     {
       label: 'Inicio',
       path: '/super-admin/inicio',
-      description: 'Resumen operacional',
+      description: 'Workspace de cobertura',
     },
     {
       label: 'Beneficiarios',
       path: '/super-admin/beneficiarios',
-      description: 'Vista global del padron',
+      description: 'Cola operacional global',
     },
     {
       label: 'Auditoría y reportes',
@@ -53,12 +53,12 @@ export const roleNavigation: Record<UserRole, NavItem[]> = {
     {
       label: 'Inicio',
       path: '/admin/inicio',
-      description: 'Resumen operacional',
+      description: 'Workspace de cobertura',
     },
     {
       label: 'Beneficiarios',
       path: '/admin/beneficiarios',
-      description: 'Exploracion operativa',
+      description: 'Cola operacional global',
     },
     {
       label: 'Auditoría y reportes',
@@ -95,27 +95,27 @@ export const roleNavigation: Record<UserRole, NavItem[]> = {
     {
       label: 'Inicio',
       path: '/teleoperadora/inicio',
-      description: 'Priorizacion diaria',
+      description: 'Cola operacional diaria',
     },
     {
       label: 'Mi cartera',
       path: '/teleoperadora/cartera',
-      description: 'Beneficiarios asignados',
+      description: 'Cobertura priorizada',
     },
     {
       label: 'Seguimientos',
       path: '/teleoperadora/seguimientos',
-      description: 'Pendiente de fase posterior',
+      description: 'Timeline operativo',
     },
     {
       label: 'Estado de seguimiento',
       path: '/teleoperadora/estado',
-      description: 'Priorizacion por estado',
+      description: 'Cobertura canonica',
     },
     {
       label: 'Historial de interacciones',
       path: '/teleoperadora/interacciones',
-      description: 'Contexto de llamadas',
+      description: 'Detalle por beneficiario',
     },
   ],
 }
