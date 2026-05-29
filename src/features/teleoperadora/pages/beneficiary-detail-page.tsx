@@ -6,10 +6,12 @@ import { useAuth } from '@/features/auth/use-auth'
 import { FollowupForm } from '@/features/teleoperadora/components/followup-form'
 import { StatusBadge } from '@/features/teleoperadora/components/status-badge'
 import {
-  fetchTeleoperatorBeneficiaryDetail,
   followupEventLabels,
   getContactTypeLabel,
   getFollowupSourceLabel,
+} from '@/features/teleoperadora/followup-metadata'
+import {
+  fetchTeleoperatorBeneficiaryDetail,
   type TeleoperatorBeneficiaryDetail,
 } from '@/features/teleoperadora/data'
 import { formatDateTime, formatRelativeFollowupDays, formatTextFallback } from '@/lib/format'

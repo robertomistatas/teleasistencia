@@ -14,7 +14,7 @@ import {
   type AuditRiskTeleoperatorSummaryItem,
   type AuditTeleoperatorRankingItem,
 } from '@/features/auditoria/data'
-import { followupStatusMeta } from '@/features/teleoperadora/data'
+import { followupStatusMeta } from '@/features/teleoperadora/followup-metadata'
 import { formatDateTime } from '@/lib/format'
 import { cn } from '@/lib/cn'
 

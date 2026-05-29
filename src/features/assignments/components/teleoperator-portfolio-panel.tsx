@@ -1,6 +1,6 @@
 import { Badge, PageState, Panel, secondaryButtonClass } from '@/components/ui'
 import { StatusBadge } from '@/features/teleoperadora/components/status-badge'
-import { followupStatusMeta } from '@/features/teleoperadora/data'
+import { followupStatusMeta } from '@/features/teleoperadora/followup-metadata'
 import type {
   AssignmentPortfolioBeneficiary,
   AssignmentPortfolioSummary,

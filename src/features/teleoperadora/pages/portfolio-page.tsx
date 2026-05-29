@@ -4,9 +4,9 @@ import { Link } from 'react-router-dom'
 import { Badge, PageState, Panel, primaryButtonClass } from '@/components/ui'
 import { useAuth } from '@/features/auth/use-auth'
 import { StatusBadge } from '@/features/teleoperadora/components/status-badge'
+import { followupStatusMeta } from '@/features/teleoperadora/followup-metadata'
 import {
   fetchTeleoperatorPortfolio,
-  followupStatusMeta,
   type PortfolioItem,
 } from '@/features/teleoperadora/data'
 import { formatDateTime, formatRelativeFollowupDays } from '@/lib/format'

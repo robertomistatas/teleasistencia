@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase'
 import { getOperationalDisplayName } from '@/features/assignments/utils'
+import { followupEventLabels } from '@/features/teleoperadora/followup-metadata'
 import type {
   BeneficiaryContact,
   CallInteraction,
@@ -59,81 +60,6 @@ export type ManualFollowupInput = {
 
 export type ManualFollowupResult = {
   recalculationWarning: string | null
-}
-
-export const followupStatusMeta: Record<
-  FollowupStatus,
-  {
-    label: string
-    tone: 'danger' | 'warning' | 'success' | 'muted'
-    badgeClass: string
-    panelClass: string
-    accentClass: string
-  }
-> = {
-  urgent: {
-    label: 'Urgente',
-    tone: 'danger',
-    badgeClass: 'border-rose-300 bg-rose-600 text-white',
-    panelClass: 'border-rose-200 bg-rose-50/90',
-    accentClass: 'bg-rose-600',
-  },
-  pending: {
-    label: 'Pendiente',
-    tone: 'warning',
-    badgeClass: 'border-amber-300 bg-amber-100 text-amber-950',
-    panelClass: 'border-amber-200 bg-amber-50/90',
-    accentClass: 'bg-amber-400',
-  },
-  up_to_date: {
-    label: 'Al dia',
-    tone: 'success',
-    badgeClass: 'border-emerald-300 bg-emerald-600 text-white',
-    panelClass: 'border-emerald-200 bg-emerald-50/90',
-    accentClass: 'bg-emerald-600',
-  },
-  no_data: {
-    label: 'Sin datos',
-    tone: 'muted',
-    badgeClass: 'border-slate-300 bg-slate-200 text-slate-700',
-    panelClass: 'border-slate-200 bg-slate-100/90',
-    accentClass: 'bg-slate-400',
-  },
-}
-
-export const followupEventLabels: Record<FollowupEventType, string> = {
-  contact_beneficiary: 'Hable con el beneficiario',
-  contact_support_network: 'Hable con red de apoyo',
-  no_answer: 'No contesto',
-  phone_off: 'Telefono apagado',
-  wrong_number: 'Numero incorrecto',
-  requests_help: 'Solicita ayuda',
-  support_referral: 'Derivado a soporte',
-  internal_note: 'Solo registro interno',
-}
-
-export const contactTypeLabels: Record<string, string> = {
-  primary_phone: 'Telefono principal',
-  support_network: 'Red de apoyo',
-  family_contact: 'Contacto familiar',
-  emergency_contact: 'Contacto emergencia',
-  app_phone: 'Telefono app',
-  sim_phone: 'SIM / dispositivo',
-  other: 'Otro contacto',
-}
-
-export const followupSourceLabels: Record<string, string> = {
-  manual: 'Registro manual',
-  amaia_call: 'Llamada AMAIA',
-  system: 'Sistema',
-}
-
-export function getContactTypeLabel(contactType: string) {
-  return contactTypeLabels[contactType] ?? contactType
-}
-
-export function getFollowupSourceLabel(source: string) {
-  return followupSourceLabels[source] ?? source
 }
 
 export const validFollowupEventTypes = new Set<FollowupEventType>([
@@ -259,6 +185,11 @@ function isValidFollowupForCoverage(followup: {
   return validFollowupStatusEventTypes.has(followup.event_type) && Boolean(followup.occurred_at)
 }
 
+/**
+ * @deprecated Legacy pre-4.6 coverage path.
+ * Do not use for new operational flows.
+ * Coverage must come from the canonical backend workspace introduced in Phase 4.6.
+ */
 function deriveCoverageFromSources(
   calls: Array<{
     duration_seconds?: number | null
@@ -326,6 +257,11 @@ function deriveCoverageFromSources(
   }
 }
 
+/**
+ * @deprecated Legacy pre-4.6 coverage path.
+ * Do not use for new operational flows.
+ * Coverage must come from the canonical backend workspace introduced in Phase 4.6.
+ */
 function buildCoverageMap(
   beneficiaryIds: string[],
   calls: Array<{
@@ -352,6 +288,11 @@ function buildCoverageMap(
   )
 }
 
+/**
+ * @deprecated Legacy pre-4.6 coverage path.
+ * Do not use for new operational flows.
+ * Coverage must come from the canonical backend workspace introduced in Phase 4.6.
+ */
 function buildLatestInteractionMap(
   calls: Array<{
     beneficiary_id: string | null
@@ -404,6 +345,11 @@ function buildLatestInteractionMap(
   return latestMap
 }
 
+/**
+ * @deprecated Legacy pre-4.6 coverage path.
+ * Do not use for new operational flows.
+ * Coverage must come from the canonical backend workspace introduced in Phase 4.6.
+ */
 export async function fetchTeleoperatorPortfolio(userId: string) {
   const client = assertSupabase()
   const { data, error } = await client
@@ -595,6 +541,11 @@ export async function fetchTeleoperatorPortfolio(userId: string) {
   return []
 }
 
+/**
+ * @deprecated Legacy pre-4.6 coverage path.
+ * Do not use for new operational flows.
+ * Coverage must come from the canonical backend workspace introduced in Phase 4.6.
+ */
 export async function fetchTeleoperatorBeneficiaryDetail(
   userId: string,
   beneficiaryId: string,
@@ -803,6 +754,11 @@ export async function fetchTeleoperatorBeneficiaryDetail(
   } satisfies TeleoperatorBeneficiaryDetail
 }
 
+/**
+ * @deprecated Legacy pre-4.6 coverage path.
+ * Do not use for new operational flows.
+ * Coverage must come from the canonical backend workspace introduced in Phase 4.6.
+ */
 export async function createManualFollowupEvent(input: ManualFollowupInput): Promise<ManualFollowupResult> {
   const client = assertSupabase()
   const { error } = await client.from('followup_events').insert({
