@@ -44,6 +44,11 @@ export const roleNavigation: Record<UserRole, NavItem[]> = {
       description: 'Llamadas crudas y correlación',
     },
     {
+      label: 'Monitoreo imports llamadas',
+      path: '/imports/calls/monitoring',
+      description: 'Historial, errores y diagnósticos',
+    },
+    {
       label: 'Usuarios',
       path: '/users',
       description: 'Perfiles operativos',
@@ -84,6 +89,11 @@ export const roleNavigation: Record<UserRole, NavItem[]> = {
       label: 'Importación llamadas AMAIA',
       path: '/imports/calls',
       description: 'Llamadas crudas y correlación',
+    },
+    {
+      label: 'Monitoreo imports llamadas',
+      path: '/imports/calls/monitoring',
+      description: 'Historial, errores y diagnósticos',
     },
     {
       label: 'Usuarios',

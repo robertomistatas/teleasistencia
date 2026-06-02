@@ -234,6 +234,81 @@ export type CallLogsImportRunSummary = {
   finishedAt: string | null
 }
 
+export type CallImportMonitoringSummary = {
+  totalImports: number
+  successfulImports: number
+  importsWithErrors: number
+  correlationRate: number
+}
+
+export type CallImportMonitoringRun = {
+  id: string
+  sourceType: string
+  filename: string
+  importedBy: string | null
+  importedByName: string | null
+  importedByEmail: string | null
+  status: string
+  startedAt: string
+  finishedAt: string | null
+  totalRows: number
+  processedRows: number
+  validRows: number
+  invalidRows: number
+  correlatedRows: number
+  uncorrelatedRows: number
+  warningCount: number
+  errorCount: number
+  createdAt: string
+  metadata: Record<string, unknown> | null
+}
+
+export type CallImportMonitoringOverview = {
+  summary: CallImportMonitoringSummary
+  imports: CallImportMonitoringRun[]
+}
+
+export type CallImportJobIssue = {
+  id: string
+  rowNumber: number | null
+  severity: 'warning' | 'error'
+  errorCode: string
+  message: string
+  details: Record<string, unknown> | null
+  createdAt: string
+}
+
+export type CallLogCorrelationIssueType =
+  | 'beneficiary_not_found'
+  | 'phone_not_matched'
+  | 'assignment_not_found'
+  | 'assignment_inactive'
+  | 'operator_not_found'
+  | 'ambiguous_match'
+  | 'invalid_call_data'
+  | 'duplicate_call'
+  | 'unknown'
+
+export type CallImportCorrelationIssue = {
+  id: string
+  rowNumber: number | null
+  issueType: CallLogCorrelationIssueType
+  issueMessage: string
+  externalCallId: string | null
+  phoneNormalized: string | null
+  beneficiaryId: string | null
+  beneficiaryName: string | null
+  assignmentIdAtCallTime: string | null
+  responsibleUserIdAtCallTime: string | null
+  createdAt: string
+}
+
+export type CallImportJobDetail = {
+  job: CallImportMonitoringRun | null
+  errors: CallImportJobIssue[]
+  warnings: CallImportJobIssue[]
+}
+
 type ImportRunRow = {
   id: string
   created_at: string
@@ -603,6 +678,118 @@ function mapCallLogsSummary(value: unknown): CallLogsImportSummary {
     matchedMultipleRows: Number(object.matchedMultipleRows ?? 0),
     unmatchedRows: Number(object.unmatchedRows ?? 0),
     invalidPhoneRows: Number(object.invalidPhoneRows ?? 0),
+  }
+}
+
+function mapCallImportMonitoringSummary(value: unknown): CallImportMonitoringSummary {
+  const object = ensureObject(value)
+
+  return {
+    totalImports: Number(object.totalImports ?? 0),
+    successfulImports: Number(object.successfulImports ?? 0),
+    importsWithErrors: Number(object.importsWithErrors ?? 0),
+    correlationRate: Number(object.correlationRate ?? 0),
+  }
+}
+
+function mapCallImportMonitoringRun(value: unknown): CallImportMonitoringRun {
+  const object = ensureObject(value)
+
+  return {
+    id: String(object.id ?? ''),
+    sourceType: String(object.sourceType ?? 'unknown'),
+    filename: String(object.filename ?? ''),
+    importedBy: typeof object.importedBy === 'string' ? object.importedBy : null,
+    importedByName: typeof object.importedByName === 'string' ? object.importedByName : null,
+    importedByEmail: typeof object.importedByEmail === 'string' ? object.importedByEmail : null,
+    status: String(object.status ?? 'uploaded'),
+    startedAt: String(object.startedAt ?? object.createdAt ?? ''),
+    finishedAt: typeof object.finishedAt === 'string' ? object.finishedAt : null,
+    totalRows: Number(object.totalRows ?? 0),
+    processedRows: Number(object.processedRows ?? 0),
+    validRows: Number(object.validRows ?? 0),
+    invalidRows: Number(object.invalidRows ?? 0),
+    correlatedRows: Number(object.correlatedRows ?? 0),
+    uncorrelatedRows: Number(object.uncorrelatedRows ?? 0),
+    warningCount: Number(object.warningCount ?? 0),
+    errorCount: Number(object.errorCount ?? 0),
+    createdAt: String(object.createdAt ?? object.startedAt ?? ''),
+    metadata: object.metadata && typeof object.metadata === 'object' && !Array.isArray(object.metadata)
+      ? object.metadata as Record<string, unknown>
+      : null,
+  }
+}
+
+function mapCallImportJobIssue(value: unknown): CallImportJobIssue {
+  const object = ensureObject(value)
+  const severity = object.severity === 'error' ? 'error' : 'warning'
+
+  return {
+    id: String(object.id ?? ''),
+    rowNumber: typeof object.rowNumber === 'number' ? object.rowNumber : null,
+    severity,
+    errorCode: String(object.errorCode ?? 'unknown'),
+    message: String(object.message ?? ''),
+    details: object.details && typeof object.details === 'object' && !Array.isArray(object.details)
+      ? object.details as Record<string, unknown>
+      : null,
+    createdAt: String(object.createdAt ?? ''),
+  }
+}
+
+function mapCallImportCorrelationIssue(value: unknown): CallImportCorrelationIssue {
+  const object = ensureObject(value)
+  const issueTypeValue = object.issueType
+  const issueType: CallLogCorrelationIssueType = issueTypeValue === 'beneficiary_not_found'
+    || issueTypeValue === 'phone_not_matched'
+    || issueTypeValue === 'assignment_not_found'
+    || issueTypeValue === 'assignment_inactive'
+    || issueTypeValue === 'operator_not_found'
+    || issueTypeValue === 'ambiguous_match'
+    || issueTypeValue === 'invalid_call_data'
+    || issueTypeValue === 'duplicate_call'
+    ? issueTypeValue
+    : 'unknown'
+
+  return {
+    id: String(object.id ?? ''),
+    rowNumber: typeof object.rowNumber === 'number' ? object.rowNumber : null,
+    issueType,
+    issueMessage: String(object.issueMessage ?? ''),
+    externalCallId: typeof object.externalCallId === 'string' ? object.externalCallId : null,
+    phoneNormalized: typeof object.phoneNormalized === 'string' ? object.phoneNormalized : null,
+    beneficiaryId: typeof object.beneficiaryId === 'string' ? object.beneficiaryId : null,
+    beneficiaryName: typeof object.beneficiaryName === 'string' ? object.beneficiaryName : null,
+    assignmentIdAtCallTime: typeof object.assignmentIdAtCallTime === 'string' ? object.assignmentIdAtCallTime : null,
+    responsibleUserIdAtCallTime: typeof object.responsibleUserIdAtCallTime === 'string' ? object.responsibleUserIdAtCallTime : null,
+    createdAt: String(object.createdAt ?? ''),
+  }
+}
+
+function mapCallImportMonitoringOverview(value: unknown): CallImportMonitoringOverview {
+  const object = ensureObject(value)
+  const imports = Array.isArray(object.imports)
+    ? object.imports.map(mapCallImportMonitoringRun)
+    : []
+
+  return {
+    summary: mapCallImportMonitoringSummary(object.summary),
+    imports,
+  }
+}
+
+function mapCallImportJobDetail(value: unknown): CallImportJobDetail {
+  const object = ensureObject(value)
+  const job = object.job && typeof object.job === 'object' && !Array.isArray(object.job)
+    ? mapCallImportMonitoringRun(object.job)
+    : null
+  const errors = Array.isArray(object.errors) ? object.errors.map(mapCallImportJobIssue) : []
+  const warnings = Array.isArray(object.warnings) ? object.warnings.map(mapCallImportJobIssue) : []
+
+  return {
+    job,
+    errors,
+    warnings,
   }
 }
 
@@ -1042,6 +1229,42 @@ export async function fetchRecentCallLogsImportRuns() {
       finishedAt: row.finished_at,
     }
   })
+}
+
+export async function fetchCallImportMonitoringOverview(limit = 20) {
+  const { data, error } = await assertSupabase().rpc('get_call_import_monitoring_summary', {
+    p_limit: limit,
+  })
+
+  if (error) {
+    throw error
+  }
+
+  return mapCallImportMonitoringOverview(data)
+}
+
+export async function fetchCallImportDetail(importRunId: string) {
+  const { data, error } = await assertSupabase().rpc('get_call_import_detail', {
+    p_import_run_id: importRunId,
+  })
+
+  if (error) {
+    throw error
+  }
+
+  return mapCallImportJobDetail(data)
+}
+
+export async function fetchCallImportCorrelationIssues(importRunId: string) {
+  const { data, error } = await assertSupabase().rpc('get_call_import_correlation_issues', {
+    p_import_run_id: importRunId,
+  })
+
+  if (error) {
+    throw error
+  }
+
+  return Array.isArray(data) ? data.map(mapCallImportCorrelationIssue) : []
 }
 
 export function getBeneficiaryImportErrorMessage(error: unknown) {

@@ -15,6 +15,7 @@ import { OperationalBeneficiaryPage } from '@/features/operational-workspace/pag
 import { OperationalWorkspacePage } from '@/features/operational-workspace/pages/operational-workspace-page'
 import { AssignmentImportPage } from '@/features/imports/pages/assignment-import-page'
 import { BeneficiaryImportPage } from '@/features/imports/pages/beneficiary-import-page'
+import { CallImportMonitoringPage } from '@/features/imports/pages/call-import-monitoring-page'
 import { CallLogsImportPage } from '@/features/imports/pages/call-logs-import-page'
 import { UsersPage } from '@/features/users/pages/users-page'
 
@@ -95,6 +96,15 @@ export function AppRouter() {
           element={
             <RequireRole allowedRoles={['admin', 'super_admin']}>
               <CallLogsImportPage />
+            </RequireRole>
+          }
+        />
+
+        <Route
+          path="/imports/calls/monitoring"
+          element={
+            <RequireRole allowedRoles={['admin', 'super_admin']}>
+              <CallImportMonitoringPage />
             </RequireRole>
           }
         />
