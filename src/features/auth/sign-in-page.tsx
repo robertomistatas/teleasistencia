@@ -11,7 +11,7 @@ export function SignInPage() {
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
-  if (status === 'authenticated' && profile) {
+  if (status === 'authenticated' && profile?.is_active) {
     return <Navigate to="/" replace />
   }
 
