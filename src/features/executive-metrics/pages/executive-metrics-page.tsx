@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { Badge, PageState, Panel, primaryButtonClass, secondaryButtonClass } from '@/components/ui'
 import { useAuth } from '@/features/auth/use-auth'
 import { ExecutiveMetricCard } from '@/features/executive-metrics/components/executive-metric-card'
+import { ExecutiveTrendChart } from '@/features/executive-metrics/components/executive-trend-chart'
 import {
   fetchExecutiveMetricsHistory,
   fetchExecutiveMetricsSummary,
@@ -65,6 +66,13 @@ function formatDelta(value: number | null, suffix = 'pts') {
 
   const sign = value > 0 ? '+' : ''
   return `${sign}${value.toFixed(2)} ${suffix}`
+}
+
+function formatSnapshotDate(value: string) {
+  return new Intl.DateTimeFormat('es-CL', {
+    day: '2-digit',
+    month: 'short',
+  }).format(new Date(`${value}T00:00:00`))
 }
 
 function getExecutiveTone(metric: 'effectiveCoverage' | 'overdueCoverage' | 'effectiveContactRate' | 'correlationRate' | 'backlog' | 'aging' | 'critical' | 'history') {
@@ -204,6 +212,97 @@ export function ExecutiveMetricsPage() {
       return left.operatorName.localeCompare(right.operatorName)
     })
   }, [state.operators.data])
+  const summary = state.summary.data
+  const historyData = state.history.data
+  const history = historyData ?? []
+  const historyMeta = summary?.history ?? null
+  const current = summary?.current ?? null
+  const historyUnavailable = historyMeta ? !historyMeta.available : true
+  const historyInsufficient = historyMeta ? historyMeta.available && !historyMeta.enoughForTrend : false
+  const trendSeries = useMemo(() => {
+    const historyPoints = historyData ?? []
+
+    return [
+      {
+        eyebrow: 'Coverage trend',
+        title: 'Effective coverage trend',
+        description: 'Serie historica real de cobertura efectiva institucional tomada desde snapshots globales persistidos.',
+        color: '#047857',
+        valueVariant: 'percent' as const,
+        latestValueLabel: current ? formatPercent(current.effectiveCoverage) : 'Sin dato',
+        summaryLabel: 'No se recalcula cobertura; solo se grafica la serie historica expuesta por backend.',
+        points: historyPoints.map((point) => ({
+          label: formatSnapshotDate(point.snapshotDate),
+          value: point.effectiveCoverage,
+        })),
+      },
+      {
+        eyebrow: 'Overdue trend',
+        title: 'Overdue coverage trend',
+        description: 'Evolucion del porcentaje de cartera vencida institucional sobre snapshots reales.',
+        color: '#c2410c',
+        valueVariant: 'percent' as const,
+        latestValueLabel: current ? formatPercent(current.overdueCoverage) : 'Sin dato',
+        summaryLabel: 'Ayuda a leer presion operativa acumulada sin mezclar UI tactica.',
+        points: historyPoints.map((point) => ({
+          label: formatSnapshotDate(point.snapshotDate),
+          value: point.overdueCoverage,
+        })),
+      },
+      {
+        eyebrow: 'Urgent trend',
+        title: 'Urgent coverage trend',
+        description: 'Serie institucional de casos urgentes como porcentaje del universo visible en cada snapshot.',
+        color: '#be123c',
+        valueVariant: 'percent' as const,
+        latestValueLabel: current ? formatPercent(current.urgentCoverage) : 'Sin dato',
+        summaryLabel: 'La serie proviene del historico persistido, sin interpolar dias faltantes.',
+        points: historyPoints.map((point) => ({
+          label: formatSnapshotDate(point.snapshotDate),
+          value: point.urgentCoverage,
+        })),
+      },
+      {
+        eyebrow: 'Activity trend',
+        title: 'Effective contact rate trend',
+        description: 'Evolucion historica de la efectividad operacional general desde snapshots ejecutivos reales.',
+        color: '#1d4ed8',
+        valueVariant: 'percent' as const,
+        latestValueLabel: current ? formatPercent(current.effectiveContactRate) : 'Sin dato',
+        summaryLabel: 'La pagina formatea la tasa; no reconstruye el KPI desde eventos.',
+        points: historyPoints.map((point) => ({
+          label: formatSnapshotDate(point.snapshotDate),
+          value: point.effectiveContactRate,
+        })),
+      },
+      {
+        eyebrow: 'Import trend',
+        title: 'Correlation rate trend',
+        description: 'Serie institucional de calidad de correlacion usando exclusivamente snapshots que ya capturaron import quality.',
+        color: '#7c3aed',
+        valueVariant: 'percent' as const,
+        latestValueLabel: current ? formatPercent(current.correlationRate) : 'Sin dato',
+        summaryLabel: 'Si un snapshot no trae correlation rate, el chart lo muestra como historico ausente, no inventado.',
+        points: historyPoints.map((point) => ({
+          label: formatSnapshotDate(point.snapshotDate),
+          value: point.correlationRate,
+        })),
+      },
+      {
+        eyebrow: 'Backlog trend',
+        title: 'Stale beneficiaries trend',
+        description: 'Lectura historica del backlog stale institucional para direccion y stakeholders.',
+        color: '#475569',
+        valueVariant: 'count' as const,
+        latestValueLabel: current ? formatCount(current.stalePortfolio) : 'Sin dato',
+        summaryLabel: 'Expone volumen stale persistido por snapshot, sin derivar historico desde runtime.',
+        points: historyPoints.map((point) => ({
+          label: formatSnapshotDate(point.snapshotDate),
+          value: point.staleBeneficiaryCount,
+        })),
+      },
+    ]
+  }, [current, historyData])
 
   if (!profile) {
     return null
@@ -254,13 +353,6 @@ export function ExecutiveMetricsPage() {
       />
     )
   }
-
-  const summary = state.summary.data
-  const history = state.history.data ?? []
-  const historyMeta = summary?.history ?? null
-  const current = summary?.current ?? null
-  const historyUnavailable = historyMeta ? !historyMeta.available : true
-  const historyInsufficient = historyMeta ? historyMeta.available && !historyMeta.enoughForTrend : false
 
   return (
     <div className="space-y-6">
@@ -467,6 +559,29 @@ export function ExecutiveMetricsPage() {
             />
           ) : (
             <div className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-[24px] border border-slate-200 bg-white p-5">
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Snapshots disponibles</p>
+                  <p className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">{formatCount(historyMeta?.snapshotsAvailable ?? 0)}</p>
+                  <p className="mt-2 text-sm text-slate-600">Cantidad real de puntos historicos persistidos para este periodo.</p>
+                </div>
+                <div className="rounded-[24px] border border-slate-200 bg-white p-5">
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Ultimo snapshot</p>
+                  <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">{historyMeta?.latestSnapshotDate ?? 'Sin dato'}</p>
+                  <p className="mt-2 text-sm text-slate-600">Fecha mas reciente disponible sin completar huecos ausentes.</p>
+                </div>
+                <div className="rounded-[24px] border border-slate-200 bg-white p-5">
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Periodo evaluado</p>
+                  <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">{formatCount(summary?.historyDays ?? 30)} dias</p>
+                  <p className="mt-2 text-sm text-slate-600">Ventana solicitada al RPC historico ejecutivo.</p>
+                </div>
+                <div className="rounded-[24px] border border-slate-200 bg-white p-5">
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Estado historico</p>
+                  <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">{historyMeta?.enoughForTrend ? 'Comparable' : 'Parcial'}</p>
+                  <p className="mt-2 text-sm text-slate-600">Se declara insuficiencia si faltan snapshots para comparar tendencia.</p>
+                </div>
+              </div>
+
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
                   <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Cobertura vs baseline</p>
@@ -483,6 +598,22 @@ export function ExecutiveMetricsPage() {
                   <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">{formatDelta(historyMeta?.correlationRateDelta ?? null)}</p>
                   <p className="mt-2 text-sm text-slate-600">Disponible solo si el historico global capturo import quality en snapshots.</p>
                 </div>
+              </div>
+
+              <div className="grid gap-5 xl:grid-cols-2">
+                {trendSeries.map((series) => (
+                  <ExecutiveTrendChart
+                    key={series.title}
+                    eyebrow={series.eyebrow}
+                    title={series.title}
+                    description={series.description}
+                    points={series.points}
+                    color={series.color}
+                    valueVariant={series.valueVariant}
+                    latestValueLabel={series.latestValueLabel}
+                    summaryLabel={series.summaryLabel}
+                  />
+                ))}
               </div>
 
               <div className="overflow-x-auto">
