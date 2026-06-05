@@ -4,8 +4,10 @@ import { Link } from 'react-router-dom'
 import { Badge, PageState, Panel, primaryButtonClass, secondaryButtonClass } from '@/components/ui'
 import { useAuth } from '@/features/auth/use-auth'
 import { ExecutiveMetricCard } from '@/features/executive-metrics/components/executive-metric-card'
+import { ExecutiveRiskCard } from '@/features/executive-metrics/components/executive-risk-card'
 import { ExecutiveTrendChart } from '@/features/executive-metrics/components/executive-trend-chart'
 import {
+  type ExecutiveRiskState,
   fetchExecutiveMetricsHistory,
   fetchExecutiveMetricsSummary,
   fetchExecutiveOperatorComparison,
@@ -73,6 +75,36 @@ function formatSnapshotDate(value: string) {
     day: '2-digit',
     month: 'short',
   }).format(new Date(`${value}T00:00:00`))
+}
+
+function formatRiskStateLabel(value: ExecutiveRiskState) {
+  switch (value) {
+    case 'healthy':
+      return 'Healthy'
+    case 'watch':
+      return 'Watch'
+    case 'risk':
+      return 'Risk'
+    case 'critical':
+      return 'Critical'
+    default:
+      return value
+  }
+}
+
+function getBadgeToneForRiskState(value: ExecutiveRiskState) {
+  switch (value) {
+    case 'healthy':
+      return 'success' as const
+    case 'watch':
+      return 'warning' as const
+    case 'risk':
+      return 'warning' as const
+    case 'critical':
+      return 'danger' as const
+    default:
+      return 'muted' as const
+  }
 }
 
 function getExecutiveTone(metric: 'effectiveCoverage' | 'overdueCoverage' | 'effectiveContactRate' | 'correlationRate' | 'backlog' | 'aging' | 'critical' | 'history') {
@@ -217,6 +249,7 @@ export function ExecutiveMetricsPage() {
   const history = historyData ?? []
   const historyMeta = summary?.history ?? null
   const current = summary?.current ?? null
+  const slaRisk = summary?.slaRisk ?? null
   const historyUnavailable = historyMeta ? !historyMeta.available : true
   const historyInsufficient = historyMeta ? historyMeta.available && !historyMeta.enoughForTrend : false
   const trendSeries = useMemo(() => {
@@ -401,12 +434,12 @@ export function ExecutiveMetricsPage() {
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="rounded-[26px] border border-slate-200 bg-white/90 p-5">
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Backlog acumulado</p>
+                <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Riesgo institucional</p>
                 <p className="mt-3 text-3xl font-semibold tracking-tight text-rose-950">
-                  {current ? formatCount(current.backlogAccumulated) : 'Sin dato'}
+                  {slaRisk ? formatRiskStateLabel(slaRisk.institutionalRiskLevel) : 'Sin dato'}
                 </p>
                 <p className="mt-3 text-sm leading-6 text-slate-600">
-                  Casos stale u operativamente vencidos que tensionan la salud institucional.
+                  Priorizacion ejecutiva consolidada desde backend, no inferida solo por colores de frontend.
                 </p>
               </div>
               <div className="rounded-[26px] border border-slate-200 bg-white/90 p-5">
@@ -483,6 +516,128 @@ export function ExecutiveMetricsPage() {
           />
         </section>
       )}
+
+      <div className="grid gap-6 xl:grid-cols-[0.98fr_1.02fr]">
+        <PanelFrame
+          eyebrow="Institutional SLA"
+          title="Cumplimiento SLA institucional"
+          description="Lectura ejecutiva de cumplimiento, severidad y envejecimiento ya clasificada en backend para evitar semantica improvisada en frontend."
+          badge={slaRisk ? <Badge tone={getBadgeToneForRiskState(slaRisk.slaComplianceState)}>{formatRiskStateLabel(slaRisk.slaComplianceState)}</Badge> : undefined}
+        >
+          {!slaRisk ? (
+            <InlineState
+              title="Sin lectura SLA"
+              description="No fue posible construir la lectura institucional de SLA y severidad."
+              tone="warning"
+            />
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <ExecutiveRiskCard
+                eyebrow="SLA"
+                title="SLA compliance"
+                value={formatPercent(slaRisk.slaComplianceRate)}
+                helper="El estado ya viene clasificado por backend como cumplimiento institucional."
+                state={slaRisk.slaComplianceState}
+              />
+              <ExecutiveRiskCard
+                eyebrow="Severidad"
+                title="Overdue severity"
+                value={formatPercent(slaRisk.overdueSeverityRate)}
+                helper="Porcentaje institucional de cartera vencida para lectura ejecutiva."
+                state={slaRisk.overdueSeverityState}
+              />
+              <ExecutiveRiskCard
+                eyebrow="Concentracion"
+                title="Stale concentration"
+                value={formatPercent(slaRisk.staleConcentrationRate)}
+                helper="Participacion de casos stale sobre el universo institucional visible."
+                state={slaRisk.staleConcentrationState}
+              />
+              <ExecutiveRiskCard
+                eyebrow="Aging"
+                title="Aging institucional"
+                value={formatDays(slaRisk.agingInstitutionalDays)}
+                helper="Envejecimiento promedio de seguimiento efectivo a nivel institucional."
+                state={slaRisk.agingInstitutionalState}
+              />
+            </div>
+          )}
+        </PanelFrame>
+
+        <PanelFrame
+          eyebrow="Executive risk"
+          title="Riesgo y priorizacion institucional"
+          description="Resume backlog critico, degradacion operacional y drivers de riesgo sin transformar la vista en una lista tactica de beneficiarios."
+          badge={slaRisk ? <Badge tone={getBadgeToneForRiskState(slaRisk.institutionalRiskLevel)}>{formatRiskStateLabel(slaRisk.institutionalRiskLevel)}</Badge> : undefined}
+        >
+          {!slaRisk ? (
+            <InlineState
+              title="Sin lectura de riesgo"
+              description="No fue posible consolidar la priorizacion institucional en este momento."
+              tone="warning"
+            />
+          ) : (
+            <div className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                <ExecutiveRiskCard
+                  eyebrow="Backlog"
+                  title="Critical backlog"
+                  value={formatCount(slaRisk.criticalBacklogCount)}
+                  helper={`${formatPercent(slaRisk.criticalBacklogRate)} del universo institucional se encuentra en urgencia.`}
+                  state={slaRisk.criticalBacklogState}
+                />
+                <ExecutiveRiskCard
+                  eyebrow="Degradacion"
+                  title="Operational degradation"
+                  value={slaRisk.degradationAvailable && slaRisk.operationalDegradationState ? formatRiskStateLabel(slaRisk.operationalDegradationState) : 'Sin historico'}
+                  helper={slaRisk.degradationAvailable
+                    ? 'Se determina desde deltas historicos reales de snapshots persistidos.'
+                    : 'No hay suficientes snapshots para clasificar degradacion reciente.'}
+                  state={slaRisk.degradationAvailable && slaRisk.operationalDegradationState ? slaRisk.operationalDegradationState : 'watch'}
+                />
+                <ExecutiveRiskCard
+                  eyebrow="Institucion"
+                  title="Risk level"
+                  value={formatRiskStateLabel(slaRisk.institutionalRiskLevel)}
+                  helper={slaRisk.attentionRequired
+                    ? 'La lectura institucional requiere atencion ejecutiva priorizada.'
+                    : 'La lectura institucional no muestra tension ejecutiva severa.'}
+                  state={slaRisk.institutionalRiskLevel}
+                />
+              </div>
+
+              <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Drivers de riesgo</p>
+                    <h3 className="mt-2 text-lg font-semibold tracking-tight text-slate-950">Factores que explican la priorizacion institucional</h3>
+                    <p className="mt-2 text-sm leading-7 text-slate-600">
+                      Estas observaciones vienen condicionadas por el estado backend de SLA, severidad, backlog y degradacion historica.
+                    </p>
+                  </div>
+                  <Badge tone={slaRisk.attentionRequired ? 'warning' : 'success'}>
+                    {slaRisk.attentionRequired ? 'Atencion requerida' : 'Sin tension severa'}
+                  </Badge>
+                </div>
+
+                {slaRisk.riskDrivers.length > 0 ? (
+                  <ul className="mt-4 space-y-3">
+                    {slaRisk.riskDrivers.map((driver) => (
+                      <li key={driver} className="rounded-[18px] border border-slate-200 bg-white px-4 py-3 text-sm leading-7 text-slate-700">
+                        {driver}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="mt-4 rounded-[18px] border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm leading-7 text-emerald-900">
+                    No hay drivers de riesgo severo activos en la lectura institucional actual.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </PanelFrame>
+      </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.08fr_0.92fr]">
         <PanelFrame

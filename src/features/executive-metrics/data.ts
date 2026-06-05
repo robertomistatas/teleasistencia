@@ -50,6 +50,28 @@ export type ExecutiveMetricsSummary = {
   historyDays: number
   current: ExecutiveMetricsCurrent
   history: ExecutiveMetricsHistorySummary
+  slaRisk: ExecutiveSlaRiskSummary
+}
+
+export type ExecutiveRiskState = 'healthy' | 'watch' | 'risk' | 'critical'
+
+export type ExecutiveSlaRiskSummary = {
+  slaComplianceRate: number
+  slaComplianceState: ExecutiveRiskState
+  overdueSeverityRate: number
+  overdueSeverityState: ExecutiveRiskState
+  staleConcentrationRate: number
+  staleConcentrationState: ExecutiveRiskState
+  criticalBacklogCount: number
+  criticalBacklogRate: number
+  criticalBacklogState: ExecutiveRiskState
+  agingInstitutionalDays: number
+  agingInstitutionalState: ExecutiveRiskState
+  degradationAvailable: boolean
+  operationalDegradationState: ExecutiveRiskState | null
+  institutionalRiskLevel: ExecutiveRiskState
+  attentionRequired: boolean
+  riskDrivers: string[]
 }
 
 export type ExecutiveMetricsHistoryPoint = {
@@ -84,6 +106,7 @@ type ExecutiveMetricsSummaryRpc = {
   historyDays: number
   current: ExecutiveMetricsCurrent
   history: ExecutiveMetricsHistorySummary
+  slaRisk: ExecutiveSlaRiskSummary
 }
 
 type ExecutiveMetricsHistoryRowRpc = {
