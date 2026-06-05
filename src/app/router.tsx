@@ -11,6 +11,7 @@ import { RoleHomeRedirect } from '@/features/core/pages/role-home-redirect'
 import { UnauthorizedPage } from '@/features/core/pages/unauthorized-page'
 import { AuditDashboardPage } from '@/features/auditoria/pages/audit-dashboard-page'
 import { SignInPage } from '@/features/auth/sign-in-page'
+import { OperationalDashboardPage } from '@/features/operational-dashboard/pages/operational-dashboard-page'
 import { OperationalBeneficiaryPage } from '@/features/operational-workspace/pages/operational-beneficiary-page'
 import { OperationalWorkspacePage } from '@/features/operational-workspace/pages/operational-workspace-page'
 import { AssignmentImportPage } from '@/features/imports/pages/assignment-import-page'
@@ -118,7 +119,7 @@ export function AppRouter() {
           }
         >
           <Route index element={<Navigate to="/teleoperadora/inicio" replace />} />
-          <Route path="inicio" element={<OperationalWorkspacePage />} />
+          <Route path="inicio" element={<OperationalDashboardPage />} />
           <Route path="cartera" element={<OperationalWorkspacePage />} />
           <Route path="beneficiarios/:beneficiaryId" element={<OperationalBeneficiaryPage />} />
           <Route path="seguimientos" element={<OperationalWorkspacePage />} />
@@ -135,7 +136,7 @@ export function AppRouter() {
           }
         >
           <Route index element={<Navigate to="/admin/inicio" replace />} />
-          <Route path="inicio" element={<OperationalWorkspacePage />} />
+          <Route path="inicio" element={<OperationalDashboardPage />} />
           <Route path="beneficiarios" element={<OperationalWorkspacePage />} />
           <Route path="beneficiarios/:beneficiaryId" element={<OperationalBeneficiaryPage />} />
           <Route
@@ -155,7 +156,7 @@ export function AppRouter() {
           }
         >
           <Route index element={<Navigate to="/super-admin/inicio" replace />} />
-          <Route path="inicio" element={<OperationalWorkspacePage />} />
+          <Route path="inicio" element={<OperationalDashboardPage />} />
           <Route path="beneficiarios" element={<OperationalWorkspacePage />} />
           <Route path="beneficiarios/:beneficiaryId" element={<OperationalBeneficiaryPage />} />
           <Route

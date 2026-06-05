@@ -8,7 +8,11 @@ import { cn } from '@/lib/cn'
 
 function buildBreadcrumb(pathname: string) {
   const labelMap: Record<string, string> = {
+    inicio: 'Consola operacional',
     assignments: 'Carteras operacionales',
+    cartera: 'Mi cartera',
+    auditoria: 'Auditoria',
+    users: 'Usuarios',
   }
   const parts = pathname.split('/').filter(Boolean)
 

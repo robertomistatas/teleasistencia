@@ -11,7 +11,7 @@ export const roleNavigation: Record<UserRole, NavItem[]> = {
     {
       label: 'Inicio',
       path: '/super-admin/inicio',
-      description: 'Workspace de cobertura',
+      description: 'Consola operacional viva',
     },
     {
       label: 'Beneficiarios',
@@ -58,7 +58,7 @@ export const roleNavigation: Record<UserRole, NavItem[]> = {
     {
       label: 'Inicio',
       path: '/admin/inicio',
-      description: 'Workspace de cobertura',
+      description: 'Consola operacional viva',
     },
     {
       label: 'Beneficiarios',
@@ -105,7 +105,7 @@ export const roleNavigation: Record<UserRole, NavItem[]> = {
     {
       label: 'Inicio',
       path: '/teleoperadora/inicio',
-      description: 'Cola operacional diaria',
+      description: 'Consola táctica de mi operación',
     },
     {
       label: 'Mi cartera',
