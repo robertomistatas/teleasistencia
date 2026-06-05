@@ -9,6 +9,7 @@ import { cn } from '@/lib/cn'
 function buildBreadcrumb(pathname: string) {
   const labelMap: Record<string, string> = {
     inicio: 'Consola operacional',
+    metricas: 'Metricas ejecutivas',
     assignments: 'Carteras operacionales',
     cartera: 'Mi cartera',
     auditoria: 'Auditoria',
