@@ -10,6 +10,7 @@ function buildBreadcrumb(pathname: string) {
   const labelMap: Record<string, string> = {
     inicio: 'Consola operacional',
     metricas: 'Metricas ejecutivas',
+    'reporte-institucional': 'Reporte institucional',
     assignments: 'Carteras operacionales',
     cartera: 'Mi cartera',
     auditoria: 'Auditoria',
@@ -39,11 +40,11 @@ export function AppShell({ children }: PropsWithChildren) {
   }
 
   return (
-    <div className="app-gradient min-h-screen px-3 py-3 sm:px-5 sm:py-5">
-      <div className="mx-auto flex min-h-[calc(100vh-1.5rem)] max-w-[1600px] gap-3 sm:gap-5">
+    <div className="app-gradient min-h-screen px-3 py-3 print:bg-white print:px-0 print:py-0 sm:px-5 sm:py-5">
+      <div className="mx-auto flex min-h-[calc(100vh-1.5rem)] max-w-[1600px] gap-3 print:block print:max-w-none sm:gap-5">
         <aside
           className={cn(
-            'fixed inset-y-3 left-3 z-40 flex w-[280px] flex-col rounded-[32px] border border-slate-900/10 bg-slate-950 px-5 py-6 text-slate-100 shadow-[0_25px_80px_rgba(15,23,42,0.35)] transition-transform lg:static lg:translate-x-0',
+            'fixed inset-y-3 left-3 z-40 flex w-[280px] flex-col rounded-[32px] border border-slate-900/10 bg-slate-950 px-5 py-6 text-slate-100 shadow-[0_25px_80px_rgba(15,23,42,0.35)] transition-transform print:hidden lg:static lg:translate-x-0',
             sidebarOpen ? 'translate-x-0' : '-translate-x-[120%]',
           )}
         >
@@ -120,7 +121,7 @@ export function AppShell({ children }: PropsWithChildren) {
         )}
 
         <div className="relative z-10 flex-1">
-          <header className="mb-5 rounded-[30px] border border-white/70 bg-white/75 px-5 py-4 shadow-[0_24px_80px_rgba(15,23,42,0.06)] backdrop-blur sm:px-6">
+          <header className="mb-5 rounded-[30px] border border-white/70 bg-white/75 px-5 py-4 shadow-[0_24px_80px_rgba(15,23,42,0.06)] backdrop-blur print:hidden sm:px-6">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div className="flex items-start gap-3">
                 <button
@@ -149,7 +150,7 @@ export function AppShell({ children }: PropsWithChildren) {
             </div>
           </header>
 
-          <main className="space-y-5">{children}</main>
+          <main className="space-y-5 print:space-y-0">{children}</main>
         </div>
       </div>
     </div>

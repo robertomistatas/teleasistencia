@@ -19,6 +19,11 @@ export const roleNavigation: Record<UserRole, NavItem[]> = {
       description: 'Salud institucional e historico real',
     },
     {
+      label: 'Reporte institucional',
+      path: '/super-admin/reporte-institucional',
+      description: 'Lectura consolidada presentable',
+    },
+    {
       label: 'Beneficiarios',
       path: '/super-admin/beneficiarios',
       description: 'Cola operacional global',
@@ -69,6 +74,11 @@ export const roleNavigation: Record<UserRole, NavItem[]> = {
       label: 'Metricas ejecutivas',
       path: '/admin/metricas',
       description: 'Salud institucional e historico real',
+    },
+    {
+      label: 'Reporte institucional',
+      path: '/admin/reporte-institucional',
+      description: 'Lectura consolidada presentable',
     },
     {
       label: 'Beneficiarios',
