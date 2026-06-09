@@ -68,4 +68,8 @@ h4 {
   body {
     background: #ffffff;
   }
+
+  [data-print-scope="institutional-report"] article {
+    break-inside: avoid;
+  }
 }

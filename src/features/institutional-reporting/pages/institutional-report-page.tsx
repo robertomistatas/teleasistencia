@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { flushSync } from 'react-dom'
 import { Link } from 'react-router-dom'
 
 import { Badge, PageState, Panel } from '@/components/ui'
@@ -31,6 +32,13 @@ type InstitutionalNote = {
   title: string
   body: string
   tone: NoteTone
+}
+
+type EmissionMetadata = {
+  emittedAt: Date
+  emittedByName: string
+  emittedByEmail: string
+  emittedByRole: string
 }
 
 const EMPTY_HISTORY: ExecutiveMetricsHistoryPoint[] = []
@@ -106,6 +114,26 @@ function getRiskTone(value: ExecutiveMetricsSummary['slaRisk']['institutionalRis
     default:
       return 'muted' as const
   }
+}
+
+function formatEmissionDate(date: Date) {
+  return new Intl.DateTimeFormat('es-CL', { dateStyle: 'long' }).format(date)
+}
+
+function formatEmissionTime(date: Date) {
+  return new Intl.DateTimeFormat('es-CL', { timeStyle: 'medium' }).format(date)
+}
+
+function formatRoleLabel(role: string) {
+  if (role === 'super_admin') return 'Super administrador'
+  if (role === 'admin') return 'Administrador'
+  return role
+}
+
+function getHistoricalStatusLabel(summary: ExecutiveMetricsSummary) {
+  if (!summary.history.available) return 'Sin historico'
+  if (!summary.history.enoughForTrend) return 'Historico parcial'
+  return 'Historico comparable'
 }
 
 function getNoteToneClasses(tone: NoteTone) {
@@ -211,6 +239,136 @@ function buildInstitutionalNotes(
   return notes
 }
 
+function PrintOnlyHeader({
+  emission,
+  summary,
+}: {
+  emission: EmissionMetadata
+  summary: ExecutiveMetricsSummary | null
+}) {
+  return (
+    <div className="hidden print:block mb-8 border-b-2 border-slate-900 pb-6">
+      <div className="flex items-start justify-between gap-6">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.35em] text-slate-500">
+            Mistatas — Teleasistencia Institucional
+          </p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
+            Estado institucional del servicio
+          </h1>
+          <p className="mt-2 text-sm text-slate-500">
+            Reporte exportable — uso exclusivo de direccion y comite.
+          </p>
+        </div>
+        <div className="shrink-0 text-right text-sm text-slate-700">
+          <p className="font-semibold text-slate-950">{formatEmissionDate(emission.emittedAt)}</p>
+          <p className="mt-1">{formatEmissionTime(emission.emittedAt)}</p>
+        </div>
+      </div>
+
+      <div className="mt-5 grid grid-cols-2 gap-x-10 gap-y-2 text-sm text-slate-700">
+        <div>
+          <span className="font-semibold text-slate-950">Emitido por: </span>
+          {emission.emittedByName}
+          {emission.emittedByEmail ? ` (${emission.emittedByEmail})` : ''}
+        </div>
+        <div>
+          <span className="font-semibold text-slate-950">Rol emisor: </span>
+          {formatRoleLabel(emission.emittedByRole)}
+        </div>
+        <div>
+          <span className="font-semibold text-slate-950">Periodo evaluado: </span>
+          {summary
+            ? `${formatCount(summary.historyDays)} dias (ventana KPI: ${formatCount(summary.windowDays)} dias)`
+            : 'Sin dato'}
+        </div>
+        <div>
+          <span className="font-semibold text-slate-950">Ultimo snapshot: </span>
+          {summary ? formatShortDate(summary.history.latestSnapshotDate) : 'Sin dato'}
+        </div>
+        <div>
+          <span className="font-semibold text-slate-950">Snapshots disponibles: </span>
+          {summary ? formatCount(summary.history.snapshotsAvailable) : 'Sin dato'}
+        </div>
+        <div>
+          <span className="font-semibold text-slate-950">Estado historico: </span>
+          {summary ? getHistoricalStatusLabel(summary) : 'Sin dato'}
+        </div>
+        <div>
+          <span className="font-semibold text-slate-950">Fuente de datos: </span>
+          RPCs ejecutivos autorizados + snapshots persistidos
+        </div>
+        <div>
+          <span className="font-semibold text-slate-950">Referencia: </span>
+          {summary?.referenceDate ?? 'Sin dato'}
+        </div>
+      </div>
+
+      {summary && (
+        <div className="mt-5 grid grid-cols-3 gap-4 border-t border-slate-200 pt-5">
+          <div className="rounded border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Cobertura institucional</p>
+            <p className="mt-2 text-2xl font-semibold text-slate-950">{formatPercent(summary.current.effectiveCoverage)}</p>
+            <p className="mt-1 text-xs text-slate-600">
+              {formatCount(summary.current.effectiveBeneficiaries)} de {formatCount(summary.current.totalBeneficiaries)} beneficiarios
+            </p>
+          </div>
+          <div className="rounded border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">SLA compliance</p>
+            <p className="mt-2 text-2xl font-semibold text-slate-950">{formatPercent(summary.slaRisk.slaComplianceRate)}</p>
+            <p className="mt-1 text-xs text-slate-600">Estado: {formatRiskLabel(summary.slaRisk.slaComplianceState)}</p>
+          </div>
+          <div className="rounded border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Riesgo institucional</p>
+            <p className="mt-2 text-2xl font-semibold text-slate-950">{formatRiskLabel(summary.slaRisk.institutionalRiskLevel)}</p>
+            <p className="mt-1 text-xs text-slate-600">
+              {summary.slaRisk.attentionRequired ? 'Atencion ejecutiva requerida' : 'Sin tension severa activa'}
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function PrintOnlyFooter({ emission }: { emission: EmissionMetadata }) {
+  return (
+    <div className="hidden print:block mt-8 border-t border-slate-300 pt-4">
+      <div className="flex items-start justify-between gap-6 text-xs text-slate-500">
+        <p className="max-w-lg">
+          Fuente de datos: get_executive_metrics_summary · get_executive_metrics_history · get_operator_kpi_summary · v_kpi_daily_snapshot_history.
+          Sin recalculo frontend ni interpolacion de puntos faltantes.
+        </p>
+        <p className="shrink-0 text-right">
+          Emitido: {formatEmissionDate(emission.emittedAt)} {formatEmissionTime(emission.emittedAt)}<br />
+          {emission.emittedByName} — {formatRoleLabel(emission.emittedByRole)}<br />
+          Mistatas Teleasistencia Institucional
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function ExportActionsBar({ onPrint }: { onPrint: () => void }) {
+  return (
+    <div className="flex flex-wrap items-center gap-4 rounded-[28px] border border-slate-200 bg-white px-6 py-5 shadow-sm print:hidden">
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold text-slate-950">Exportar reporte institucional</p>
+        <p className="mt-1 text-xs leading-5 text-slate-500">
+          Genera PDF o impresion formal usando solo fuentes ejecutivas validadas. Sin recalculo frontend.
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={onPrint}
+        className="inline-flex shrink-0 items-center justify-center rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-[0_14px_30px_rgba(15,23,42,0.22)] transition-colors hover:bg-slate-800"
+      >
+        Imprimir reporte institucional
+      </button>
+    </div>
+  )
+}
+
 function Section({
   eyebrow,
   title,
@@ -269,9 +427,14 @@ export function InstitutionalReportPage() {
   const { isConfigured, profile } = useAuth()
   const [state, setState] = useState<InstitutionalReportState>(createEmptyState)
   const [loading, setLoading] = useState(true)
+  const [emissionMeta, setEmissionMeta] = useState<EmissionMetadata | null>(null)
 
   useEffect(() => {
     if (!profile || !isConfigured) {
+      return
+    }
+
+    if (profile.role !== 'admin' && profile.role !== 'super_admin') {
       return
     }
 
@@ -304,6 +467,13 @@ export function InstitutionalReportPage() {
           : { data: null, error: getExecutiveMetricsErrorMessage(operatorsResult.reason, profile.role) },
       })
 
+      setEmissionMeta({
+        emittedAt: new Date(),
+        emittedByName: profile.full_name?.trim() || profile.email || 'Sin nombre',
+        emittedByEmail: profile.email || '',
+        emittedByRole: profile.role,
+      })
+
       setLoading(false)
     }
 
@@ -334,6 +504,18 @@ export function InstitutionalReportPage() {
     () => buildInstitutionalNotes(summary, history, state.history.error, operators),
     [summary, history, state.history.error, operators],
   )
+
+  const handlePrint = () => {
+    flushSync(() => {
+      setEmissionMeta({
+        emittedAt: new Date(),
+        emittedByName: profile?.full_name?.trim() || profile?.email || 'Sin nombre',
+        emittedByEmail: profile?.email || '',
+        emittedByRole: profile?.role ?? '',
+      })
+    })
+    window.print()
+  }
 
   if (!profile) {
     return null
@@ -376,8 +558,14 @@ export function InstitutionalReportPage() {
   }
 
   return (
-    <div className="space-y-6 print:space-y-4">
-      <Panel className="overflow-hidden p-0 print:border-slate-200 print:shadow-none">
+    <div className="space-y-6 print:space-y-4" data-print-scope="institutional-report">
+      <ExportActionsBar onPrint={handlePrint} />
+
+      {emissionMeta && (
+        <PrintOnlyHeader emission={emissionMeta} summary={summary} />
+      )}
+
+      <Panel className="overflow-hidden p-0 print:hidden">
         <div className="grid xl:grid-cols-[1.2fr_0.8fr]">
           <div className="bg-[linear-gradient(135deg,#1f2937_0%,#334155_52%,#0f172a_100%)] px-7 py-8 text-white sm:px-9">
             <div className="flex flex-wrap items-center gap-2">
@@ -682,11 +870,22 @@ export function InstitutionalReportPage() {
         </div>
       </Section>
 
+      {emissionMeta && (
+        <PrintOnlyFooter emission={emissionMeta} />
+      )}
+
       <div className="flex flex-wrap gap-3 print:hidden">
+        <button
+          type="button"
+          onClick={handlePrint}
+          className="inline-flex items-center justify-center rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-[0_14px_30px_rgba(15,23,42,0.22)] transition-colors hover:bg-slate-800"
+        >
+          Imprimir reporte institucional
+        </button>
         <Link to={profile.role === 'admin' ? '/admin/metricas' : '/super-admin/metricas'} className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-800 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50">
           Abrir metricas ejecutivas
         </Link>
-        <Link to={profile.role === 'admin' ? '/admin/beneficiarios' : '/super-admin/beneficiarios'} className="inline-flex items-center justify-center rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-[0_14px_30px_rgba(15,23,42,0.22)] transition-colors hover:bg-slate-800">
+        <Link to={profile.role === 'admin' ? '/admin/beneficiarios' : '/super-admin/beneficiarios'} className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-800 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50">
           Abrir operacion global
         </Link>
       </div>
