@@ -1,0 +1,27 @@
+-- AMAIA-SYNC Phase 9.3C v6.6 — 01 roles, preflight, pgcrypto
+-- Ultra-granular split from approved v6/v6.2. Semantics unchanged.
+-- Protocol: AMAIA_SYNC_MANIFEST_FINALIZATION_PROTOCOL_v1.6.4 (Codex approved)
+
+-- ============================================================
+-- PREFLIGHT
+-- ============================================================
+-- Preflight verified manually before deployment:
+-- amaia_sync_run_manifests = 0
+-- amaia_sync_cycles = 0
+-- amaia_sync_manifest_exclusion_subjects = 0
+-- amaia_sync_manifest_exclusion_investigations = 0
+-- amaia_sync_tombstone_events = 0
+-- amaia_sync_reconciliation_results = 0
+-- pgcrypto verified installed before deployment.
+
+-- ============================================================
+-- 1. ROLES
+-- ============================================================
+-- Roles required by Phase 9.3C were created manually before deployment:
+-- amaia_sync_manifest_owner NOLOGIN
+-- amaia_sync_runtime NOLOGIN
+-- amaia_sync_recovery_runtime NOLOGIN
+-- Role memberships were granted manually before deployment:
+-- grant amaia_sync_manifest_owner to postgres;
+-- grant amaia_sync_runtime to postgres;
+-- grant amaia_sync_recovery_runtime to postgres;
