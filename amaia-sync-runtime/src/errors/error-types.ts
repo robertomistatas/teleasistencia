@@ -38,3 +38,14 @@ export class UnsupportedDomainError extends Error {
     this.name = 'UnsupportedDomainError'
   }
 }
+
+export class SupabaseConnectionError extends Error {
+  readonly code = 'SUPABASE_CONNECTION_ERROR' as const
+  constructor(
+    message: string,
+    public readonly cause?: Error,
+  ) {
+    super(message)
+    this.name = 'SupabaseConnectionError'
+  }
+}

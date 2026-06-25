@@ -4,6 +4,7 @@ import client from 'prom-client'
 export interface HealthInfo {
   engineInstanceId: string
   uptimeSeconds: () => number
+  getPoolState?: () => string | null
 }
 
 export interface MetricsServer {
@@ -48,12 +49,61 @@ export function createMetricsServer(hostname: string, health: HealthInfo): Metri
   // M3: explicitly initialize so the metric appears in /metrics from Sprint 0
   cyclesTotal.inc(0)
 
+  // Sprint 1 metrics
+  const dbPoolErrors = new client.Counter({
+    name: 'amaia_sync_db_pool_errors_total',
+    help: 'Pool error events on idle connections',
+    registers: [registry],
+  })
+  dbPoolErrors.inc(0)
+
+  const dbClientDestroys = new client.Counter({
+    name: 'amaia_sync_db_client_destroys_total',
+    help: 'Confirmed intentional client destructions',
+    registers: [registry],
+  })
+  dbClientDestroys.inc(0)
+
+  const dbQueryTimeouts = new client.Counter({
+    name: 'amaia_sync_db_query_timeouts_total',
+    help: 'Query timeouts by tier',
+    labelNames: ['tier'],
+    registers: [registry],
+  })
+  dbQueryTimeouts.inc(0)
+
+  const dbSelfDeadlocks = new client.Counter({
+    name: 'amaia_sync_db_self_deadlocks_prevented_total',
+    help: 'State guard rejections',
+    registers: [registry],
+  })
+  dbSelfDeadlocks.inc(0)
+
+  const dbPoolPoisoned = new client.Counter({
+    name: 'amaia_sync_db_pool_poisoned_total',
+    help: 'POISONED state entries',
+    registers: [registry],
+  })
+  dbPoolPoisoned.inc(0)
+
+  const dbProbeDuration = new client.Gauge({
+    name: 'amaia_sync_db_probe_duration_seconds',
+    help: 'Startup probe latency',
+    registers: [registry],
+  })
+
   const gauges = new Map<string, client.Gauge>([
     ['amaia_sync_engine_uptime_seconds', uptimeGauge],
+    ['amaia_sync_db_probe_duration_seconds', dbProbeDuration],
   ])
 
   const counters = new Map<string, client.Counter>([
     ['amaia_sync_cycles_total', cyclesTotal],
+    ['amaia_sync_db_pool_errors_total', dbPoolErrors],
+    ['amaia_sync_db_client_destroys_total', dbClientDestroys],
+    ['amaia_sync_db_query_timeouts_total', dbQueryTimeouts],
+    ['amaia_sync_db_self_deadlocks_prevented_total', dbSelfDeadlocks],
+    ['amaia_sync_db_pool_poisoned_total', dbPoolPoisoned],
   ])
 
   let server: Server | null = null
@@ -72,12 +122,17 @@ export function createMetricsServer(hostname: string, health: HealthInfo): Metri
               res.end()
             }
           } else if (req.url === '/health' && req.method === 'GET') {
+            const poolState = health.getPoolState?.() ?? null
+            const isPoisoned = poolState === 'POISONED'
+            const statusCode = isPoisoned ? 503 : 200
             const body = JSON.stringify({
-              status: 'ok',
+              status: isPoisoned ? 'poisoned' : 'ok',
               engine_instance_id: health.engineInstanceId,
               uptime_seconds: Math.round(health.uptimeSeconds()),
+              ...(isPoisoned && { restart_required: true }),
+              ...(poolState && { pool_state: poolState }),
             })
-            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.writeHead(statusCode, { 'Content-Type': 'application/json' })
             res.end(body)
           } else {
             res.writeHead(404)

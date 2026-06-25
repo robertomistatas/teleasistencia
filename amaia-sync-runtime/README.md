@@ -2,9 +2,9 @@
 
 Single-process synchronization daemon — AMAIA MySQL (read-only) to Supabase PostgreSQL.
 
-**Sprint 0 — Operational skeleton. No business logic.**
+**Sprint 1 — PostgreSQL access layer operational.**
 
-This build validates bootstrap, configuration, observability, daemon lifecycle, and graceful shutdown. Synchronization logic (leases, runs, manifests, watermarks, recovery) is implemented in Sprints 1–8.
+Sprint 0 delivered: bootstrap, configuration, observability, daemon lifecycle, graceful shutdown. Sprint 1 adds: PostgreSQL connectivity via `pg.Pool` (max=1), Pool Occupancy State Machine (8 states), Connection Initialization Barrier, coordinated shutdown, startup probe with retry, and PostgreSQL/Supabase smoke probe. Synchronization logic (leases, runs, manifests, watermarks, recovery) is implemented in Sprints 2–8.
 
 ## Prerequisites
 
@@ -33,7 +33,7 @@ This build validates bootstrap, configuration, observability, daemon lifecycle, 
 
 `SUPABASE_DB_URL` is structurally validated at startup (scheme, host, database, username). Privileged users (`postgres`, `supabase_admin`, `service_role`) are blocked. Secrets are never logged.
 
-Sprint 0 validates presence and format of all variables but does not connect to databases.
+Sprint 1 connects to Supabase PostgreSQL at startup (probe) and validates the connection. The PostgreSQL smoke probe is a standalone script that validates connectivity and runtime assumptions (version, user, search_path, statement_timeout).
 
 ## Build
 
@@ -116,6 +116,34 @@ docker ps
 # abc123        amaia-sync-runtime:sprint0   Up 45s (healthy)        0.0.0.0:9090->9090/tcp
 ```
 
+## Pool Occupancy State Machine
+
+The PostgreSQL pool tracks 8 states: `IDLE`, `ACQUIRING`, `CHECKED_OUT`, `QUERYING`, `DRAINING`, `DESTROYING`, `DONE`, `POISONED`.
+
+- `connect()` and `query()` only proceed from `IDLE`. All other states → immediate `SupabaseConnectionError`.
+- Shutdown waits for active operations (ACQUIRING, CHECKED_OUT, QUERYING) to complete before calling `pool.end()`.
+- `POISONED` = release failure corrupted pool → controlled exit with code 1 → systemd restarts.
+
+## Health endpoint semantics
+
+```bash
+curl http://localhost:9090/health
+
+# Normal: 200 {"status":"ok","engine_instance_id":"...","uptime_seconds":...,"pool_state":"IDLE"}
+# Poisoned: 503 {"status":"poisoned","engine_instance_id":"...","restart_required":true,"pool_state":"POISONED"}
+```
+
+## PostgreSQL/Supabase Smoke Probe
+
+Standalone script to validate Supabase PostgreSQL connectivity and runtime assumptions:
+
+```bash
+# Requires SUPABASE_DB_URL (and other env vars for config loading)
+npm run smoke:pg
+```
+
+Validates: `SELECT 1`, `version()`, `current_user`, `search_path`, `statement_timeout` (must equal `30s`). Does NOT modify data or schema.
+
 ## Test
 
 ```bash
@@ -138,3 +166,4 @@ Normative documents in `/docs`:
 - `AMAIA_SYNC_MANIFEST_FINALIZATION_PROTOCOL_v1.6.4`
 - `AMAIA_SYNC_RUNTIME_TYPESCRIPT_IMPLEMENTATION_PLAN_v1.1`
 - `AMAIA_SYNC_SPRINT0_RUNTIME_SKELETON_BLUEPRINT_v1.1`
+- `AMAIA_SYNC_SPRINT1_POSTGRESQL_ACCESS_BLUEPRINT_v1.5`

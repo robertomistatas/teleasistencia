@@ -4,6 +4,7 @@ import { loadConfig, safeDbUrlSummary, type RuntimeConfig } from './config/confi
 import { buildDomainRegistry, type DomainRegistry } from './config/domain-registry.js'
 import { createLogger, emitFallbackLog, type Logger } from './observability/logger.js'
 import { createMetricsServer, type MetricsServer } from './observability/metrics.js'
+import { createPgClient, type PgClient, type ShutdownResult } from './repositories/pg-client.js'
 
 // Step 1–2: Engine identity (immutable for process lifetime)
 const engineInstanceId: string = randomUUID()
@@ -14,6 +15,7 @@ const ownerIdentity: string = `engine:${engineInstanceId}:${currentHostname}:${p
 // Mutable state for shutdown coordination
 let logger: Logger | null = null
 let metricsServer: MetricsServer | null = null
+let pgClientInstance: PgClient | null = null
 let config: RuntimeConfig | null = null
 let shuttingDown = false
 let running = true
@@ -24,7 +26,7 @@ function elapsedSeconds(): number {
   return (Date.now() - startTimestamp) / 1000
 }
 
-// --- Shutdown handler (null-safe for C2) ---
+// --- Shutdown handler (Blueprint v1.5 §12.2) ---
 
 const shutdown = async (signal: string): Promise<void> => {
   if (shuttingDown) return
@@ -35,6 +37,26 @@ const shutdown = async (signal: string): Promise<void> => {
     logger.info('engine.shutdown', { signal })
   } else {
     emitFallbackLog(engineInstanceId, ownerIdentity, 'info', 'engine.shutdown', { signal })
+  }
+
+  let exitCode = 0
+
+  if (pgClientInstance) {
+    try {
+      const result: ShutdownResult = await pgClientInstance.shutdown(75_000)
+      if (result.reason === 'POISONED' || result.reason === 'TIMEOUT') {
+        exitCode = 1
+      }
+    } catch (err) {
+      if (logger) {
+        logger.error('engine.shutdown_error', { component: 'pgClient', error: String(err) })
+      }
+      exitCode = 1
+    }
+  }
+
+  if (exitCode !== 0) {
+    process.exit(exitCode)
   }
 
   if (metricsServer) {
@@ -61,11 +83,11 @@ const shutdown = async (signal: string): Promise<void> => {
   process.exit(0)
 }
 
-// Step 3–4: Register signal handlers immediately after identity (C2)
+// Step 3–4: Register signal handlers immediately after identity
 process.on('SIGTERM', () => shutdown('SIGTERM'))
 process.on('SIGINT', () => shutdown('SIGINT'))
 
-// Step 5: uncaughtException handler (C3 + MC-4: stop idle loop immediately)
+// Step 5: uncaughtException handler
 process.on('uncaughtException', (err: Error) => {
   running = false
   shuttingDown = true
@@ -89,7 +111,7 @@ process.on('uncaughtException', (err: Error) => {
   }
 })
 
-// Step 6: unhandledRejection handler (C3 + OBS-2 + MC-4: stop idle loop immediately)
+// Step 6: unhandledRejection handler
 process.on('unhandledRejection', (reason: unknown) => {
   running = false
   shuttingDown = true
@@ -114,6 +136,12 @@ process.on('unhandledRejection', (reason: unknown) => {
     process.exit(1)
   }
 })
+
+// --- onPoisoned callback (Blueprint v1.5 §8.6A) ---
+const onPoisoned = (): void => {
+  running = false
+  setImmediate(() => shutdown('POISONED'))
+}
 
 // --- Bootstrap ---
 
@@ -156,14 +184,23 @@ async function bootstrap(): Promise<void> {
     count: validatedDomains.length,
   })
 
-  // Step 12: Create metrics server (MC-1: with health info for /health endpoint)
+  // Sprint 1 Step 10: Create metrics server (before PgClient so metrics are available)
   metricsServer = createMetricsServer(currentHostname, {
     engineInstanceId,
     uptimeSeconds: elapsedSeconds,
+    getPoolState: () => pgClientInstance?.getState() ?? null,
   })
 
-  // Step 13: Initialize placeholder metrics (M3)
-  // amaia_sync_cycles_total initialized inside createMetricsServer with inc(0)
+  // Sprint 1 Step 10: Create PgClient (pool object)
+  pgClientInstance = createPgClient({
+    connectionString: config.supabaseDbUrl,
+    logger,
+    metrics: metricsServer,
+    onPoisoned,
+  })
+
+  // Sprint 1 Step 11: Run startup connectivity probe
+  await pgClientInstance.probe()
 
   // Step 14: Start metrics HTTP server
   await metricsServer.start(config.metricsPort)
